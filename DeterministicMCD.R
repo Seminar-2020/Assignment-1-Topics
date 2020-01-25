@@ -112,11 +112,75 @@ covDetMCD <- function(x, alpha, ...) {
     results_Sigma[[i]] <- result[[2]] #xoxox
   }
   
-  # compute d_ik statistical distance --> Mahalanobis??
-  # Select h = n/2 obs. smallest distance
-  # C-steps 
-  # Obtain raw MCD by taking the smallest one out of 6
+  algorithm <- function(z, mu_hat, Sigma_hat) {
+    z$distances <- mahalanobis(z, mu_hat, Sigma_hat)^(1/2)
+    h0 <- ceiling(nrow(z)/2)
+    h <- h.alpha.n(alpha,nrow(z),ncol(z))
+    z$rank <- rank(z$distances, ties.method="random")
+    initial_subset <- z[z$rank<=h0,1:(ncol(z)-2)] #pick h0 smallest distances as initial subset and delete columns for distance & rank
+    T_H0 <-colSums(initial_subset)/h0
+    T_H0_rep <- matrix(T_H0,nrow=h,ncol=ncol(initial_subset),byrow=TRUE)
+    S_H0 <- (initial_subset-T_H0_rep)*t(initial_subset-T_H_rep)/h0
+    for (i in 1:1000) {
+      # calculate mahalanobis distance for all data points given estimated mean and cov
+      z$distances <- mahalanobis(z, T_H0, S_H0)^(1/2)
+      # order all mahalanobis distances
+      z$rank <- rank(z$distances, ties.method="random")
+      # pick h smallest, i.e. set weights of h smallest to 1
+      z$weights <- ifelse(z$distances<=h, 1, 0)
+      # calculate new mean and cov based on this subset
+      T_H <-colSums(z[z$weights==1,1:(ncol(z)-3)])/h #don't use distances, rank & weights to calculate
+      T_H_rep <- matrix(T_H,nrow=h,ncol=ncol(z)-3,byrow=TRUE)
+      S_H <- (z[z$weights==1,1:(ncol(z)-3)]-T_H_rep)*t(z[z$weights==1,1:(ncol(z)-3)]-T_H_rep)/h
+      if (det(S_H)==det(S_H0)) { # stopping criterium
+        break
+      } 
+      T_H0 <- T_H
+      S_H0 <- S_H
+      # repeat
+    }
+    result <- list("raw.center"=T_H0, "raw.cov"=S_H0,"weights"=z$weights)
+    return(result)
+  }
+  
+  results_raw_center <- list()
+  results_raw_cov <- list()
+  results_weights <- list()
+  
+  for (i in 1:6) {
+    result <- algorithm(z,results_mu[[i]],results_Sigma[[i]])
+    results_raw_center[[i]] <- result[[1]]
+    results_raw_cov[[i]] <- result[[2]]
+    results_weights[[i]] <- result[[3]]
+  }
+  
+  best_det <- function(benchmark){
+    best_det <- 1
+    for (i in 2:6) {
+      if (det(results_raw_cov[[i]])<benchmark) {
+        best_det <- i
+        benchmark <- det(results_raw_cov[[i]])
+      }
+    }
+    return(c(i,benchmark))
+  }
+  det_1 <- det(results_raw_cov[[1]])
+  ind_det <- best_det(det_1) 
+  raw.cov <- results_raw_cov[[ind_det[1]]]
+  raw.center <- results_raw_center[[ind_det[1]]]
+  #dit werkt nog niet helemaal
+  best$weights <- results_weights[[ind_det[1]]]; #vector with ones and zeros
+  best$indices <- seq(1:nrow(z))
+  best <- best[weights==1,2]
+  
   # Reweighting step to transform and obtain final estimate
+  Q <- qchisq(1-0.025, ncol(z), ncp = 0, lower.tail = TRUE, log.p = FALSE)
+  z$weights_r <- ifelse(mahalanobis(z, raw.center, raw.cov)<=Q, 1, 0)
+  weights <- z$weights_r
+  center <-colSums(z[z$weights_r==1,1:(ncol(z)-3)])/sum(z$weights_r) #don't use distances, rank & weights to calculate
+  center_rep <- matrix(center,nrow=sum(z$weights_r),ncol=ncol(z)-3,byrow=TRUE)
+  cov <- (z[z$weights_r==1,1:(ncol(z)-3)]-center_rep)*t(z[z$weights_r==1,1:(ncol(z)-3)]-center_rep)/sum(z$weights_r)
+  
   # Please note that the subset sizes for the MCD are not simply fractions of 
   # the number of observations in the data set, as discussed in the lectures.
   # You can use function h.alpha.n() from package robustbase to compute the 
