@@ -74,8 +74,49 @@ rawCovOGK <- function(z) {
 # any other output you want to return
 
 covDetMCD <- function(x, alpha, ...) {
-  # *enter your code here*
-  #
+  n <- nrow(x)
+  h <- h.alpha.n(alpha,n,ncol(x))
+  
+  # standardize data
+  rob_std <- function(col) { #not sure if Qn() is allowed, estimate for variation in a vector
+    std <- (col-median(col))/Qn(col)
+    return(std)
+  }
+  z <- as.data.frame(apply(x, 2, "rob_std"))
+  
+  # obtain 6 initial estimates
+  S1 <- corHT(z)
+  S2 <- corSpearman(z)
+  S3 <- corNSR(z)
+  S4 <- covMSS(z)
+  S5 <- covBACON1(z)
+  S6 <- rawCovOGK(z)
+  Sk <- list(S1,S2,S3,S4,S5,S6)
+  
+  proper_ev <- function(z,S) { #z cannot be a dataframe but has to be a matrix!
+    E <- eigen(S)$vectors
+    B <- z%*%E
+    Qn2 <- apply(z,2,Qn)^2
+    L <- diag(Qn2)
+    Sigma_hat <- E%*%L%*%t(E)
+    mu_hat <- Sigma_hat^(1/2)%*%apply(z%*%Sigma_hat^(-1/2), 2, median) #not 100% sure dat dit de goede median is, returnt nu NA maar testen als een vd functies geschreven is
+    result <- list("center"= mu_hat, "scatter" = Sigma_hat)
+    return(result)
+  }
+  
+  results_mu <- list()
+  results_Sigma <- list()
+  for (i in 1:6) {
+    result <- proper_ev(z,Sk[[i]])
+    results_mu[[i]] <- result[[1]]
+    results_Sigma[[i]] <- result[[2]]
+  }
+  
+  # compute d_ik statistical distance --> Mahalanobis??
+  # Select h = n/2 obs. smallest distance
+  # C-steps 
+  # Obtain raw MCD by taking the smallest one out of 6
+  # Reweighting step to transform and obtain final estimate
   # Please note that the subset sizes for the MCD are not simply fractions of 
   # the number of observations in the data set, as discussed in the lectures.
   # You can use function h.alpha.n() from package robustbase to compute the 
