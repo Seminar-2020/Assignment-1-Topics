@@ -109,7 +109,7 @@ covDetMCD <- function(x, alpha, ...) {
   for (i in 1:6) {
     result <- proper_ev(z,Sk[[i]])
     results_mu[[i]] <- result[[1]]
-    results_Sigma[[i]] <- result[[2]]
+    results_Sigma[[i]] <- result[[2]] #xoxox
   }
   
   # compute d_ik statistical distance --> Mahalanobis??
