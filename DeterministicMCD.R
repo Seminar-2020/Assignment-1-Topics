@@ -23,7 +23,7 @@ rob_std <- function(col) {
   return(std)
 }
 
-z <-apply(z, 2, "rob_std")
+z <-as.data.frame(apply(z, 2, "rob_std")) #NOG CHECKEN!!!!
 
 #euclidean distance function 
 euc.dist<- function(x1) sqrt(sum((x1) ^ 2))
@@ -40,7 +40,6 @@ corHT <- function(z) {
   s.1 = cor(y, method = "pearson")
   return(s.1)
 }
-s.1 <-corHT(z)
 
 # spearman correlation matrix s.2
 corSpearman <- function(z) {
@@ -48,22 +47,17 @@ corSpearman <- function(z) {
   s.2 = cor(r, method = "pearson")
   return(s.2)
 }
-s.2 <-corSpearman(z)
 
 # correlation matrix based on normal scores of the ranks s.3
 corNSR <- function(z) {
   #calculate the rank of each colum
   r <- apply(z, 2, rank)
-  
   #normalize the ranks 
   T = qnorm(((r-c(1/3,1/3))/(nrow(z) + 1/3))) #inv of normal distribution
   #calculate the correlation 
   s.3 = cor(T, method = "pearson")
   return(s.3)
-  
 }
-s.3 <- corNSR(z)
-
 
 # modified spatial sign covariance matrix s.4
 covMSS <- function(z) {
@@ -73,7 +67,6 @@ covMSS <- function(z) {
   s.4 <- 1/nrow(z)*crossprod(k)
   return(s.4)
 } 
-s.4 <- covMSS(z)
 
 # covariance matrix based on first step of BACON #Juist variables, beter schrijven s.5
 covBACON <- function(z) {
@@ -85,7 +78,6 @@ covBACON <- function(z) {
   s.5 <- cov(z.s)
   return (s.5)
 } 
-s.5 <- covBACON(z)
 
 # raw OGK estimator of the covariance matrix with median and Qn s.6
 rawCovOGK <- function(z) {
@@ -93,10 +85,6 @@ rawCovOGK <- function(z) {
   s.6 <- raw$cov
   return(s.6)
 }  
-s.6 <- rawCovOGK(z)
-
-
-
 
 ## Main function for deterministic MCD algorithm
 
@@ -119,17 +107,16 @@ s.6 <- rawCovOGK(z)
 
 covDetMCD <- function(x, alpha, ...) {
   n <- nrow(x)
-  h <- h.alpha.n(alpha,n,ncol(x))
   p <- ncol(x)
-  
-
+  h <- h.alpha.n(alpha,n,p)
+  z <- x
   
   # obtain 6 initial estimates
   S1 <- corHT(z)
   S2 <- corSpearman(z)
   S3 <- corNSR(z)
   S4 <- covMSS(z)
-  S5 <- covBACON1(z)
+  S5 <- covBACON(z)
   S6 <- rawCovOGK(z)
   Sk <- list(S1,S2,S3,S4,S5,S6)
   
@@ -151,11 +138,11 @@ covDetMCD <- function(x, alpha, ...) {
     results_mu[[i]] <- result[[1]]
     results_Sigma[[i]] <- result[[2]]
   }
-  
-  algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
-    z$distances <- mahalanobis(z, mu_hat, Sigma_hat)^(1/2)
+  #results_mu[[5]] <- results_mu[[4]] set to non NA value
+algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
+    z$distances <- mahalanobis(as.matrix(z), mu_hat, Sigma_hat)^(1/2)
     h0 <- ceiling(nrow(z)/2)
-    h <- h.alpha.n(alpha,nrow(z),p) #don't take distance column into account
+    h <- h.alpha.n(alpha,n,p) #don't take distance column into account
     z$rank <- rank(z$distances, ties.method="random")
     initial_subset <- z[z$rank<=h0,1:p] #pick h0 smallest distances as initial subset and delete columns for distance & rank
     T_H0 <- colSums(initial_subset)/h0
@@ -163,7 +150,7 @@ covDetMCD <- function(x, alpha, ...) {
     S_H0 <- crossprod(as.matrix(initial_subset-T_H0_rep))/h0
     for (i in 1:1000) {
       # calculate mahalanobis distance for all data points given estimated mean and cov
-      z$distances <- mahalanobis(z[,1:p], T_H0, S_H0)^(1/2)
+      z$distances <- mahalanobis(as.matrix(z[,1:p]), T_H0, S_H0)^(1/2)
       # order all mahalanobis distances
       z$rank <- rank(z$distances, ties.method="random")
       # pick h smallest, i.e. set "select' of h smallest ranks to 1
@@ -179,7 +166,7 @@ covDetMCD <- function(x, alpha, ...) {
       S_H0 <- S_H
       # repeat
     }
-    result <- list("raw.center"=T_H0, "raw.cov"=S_H0,"weights"=z$weights)
+    result <- list("raw.center"=T_H0, "raw.cov"=S_H0,"selection"=z$select)
     return(result)
   }
   
@@ -188,7 +175,7 @@ covDetMCD <- function(x, alpha, ...) {
   results_weights <- list()
   
   for (i in 1:6) {
-    result <- algorithm(as.matrix(z),results_mu[[i]],results_Sigma[[i]], alpha = 0.6) #should delete = 0.6
+    result <- algorithm(z,results_mu[[i]],results_Sigma[[i]], alpha = 0.6) #should delete = 0.6
     results_raw_center[[i]] <- result[[1]]
     results_raw_cov[[i]] <- result[[2]]
     results_weights[[i]] <- result[[3]]
@@ -202,24 +189,25 @@ covDetMCD <- function(x, alpha, ...) {
         benchmark <- det(results_raw_cov[[i]])
       }
     }
-    return(c(i,benchmark))
+    result <- list(best_det, benchmark)
+    return(result)
   }
   det_1 <- det(results_raw_cov[[1]])
   ind_det <- best_det(det_1) 
-  raw.cov <- results_raw_cov[[ind_det[1]]]
-  raw.center <- results_raw_center[[ind_det[1]]]
+  raw.cov <- results_raw_cov[[ind_det[[1]]]]
+  raw.center <- results_raw_center[[ind_det[[1]]]]
   #dit werkt nog niet helemaal
-  best$weights <- results_weights[[ind_det[1]]]; #vector with ones and zeros
-  best$indices <- seq(1:nrow(z))
-  best <- best[weights==1,2]
+  z$weights <- results_weights[[ind_det[[1]]]]; #vector with ones and zeros
+  z$indices <- seq(1:nrow(z))
+  best <- z[z$weights==1,4]
   
   # Reweighting step to transform and obtain final estimate
   Q <- qchisq(1-0.025, ncol(z), ncp = 0, lower.tail = TRUE, log.p = FALSE)
-  z$weights_r <- ifelse(mahalanobis(z, raw.center, raw.cov)<=Q, 1, 0)
+  z$weights_r <- ifelse(mahalanobis(as.matrix(z[,1:p]), raw.center, raw.cov)<=Q, 1, 0)
   weights <- z$weights_r
-  center <-colSums(z[z$weights_r==1,1:(ncol(z)-3)])/sum(z$weights_r) #don't use distances, rank & weights to calculate
-  center_rep <- matrix(center,nrow=sum(z$weights_r),ncol=ncol(z)-3,byrow=TRUE)
-  cov <- (z[z$weights_r==1,1:(ncol(z)-3)]-center_rep)*t(z[z$weights_r==1,1:(ncol(z)-3)]-center_rep)/sum(z$weights_r)
+  center <-colSums(z[z$weights_r==1,1:p])/sum(z$weights_r) #don't use distances, rank & weights to calculate
+  center_rep <- matrix(center,nrow=sum(z$weights_r),ncol=p,byrow=TRUE)
+  cov <- crossprod(as.matrix(z[z$weights_r==1,1:p]-center_rep))/sum(z$weights_r)
   # Please note that the subset sizes for the MCD are not simply fractions of 
   # the number of observations in the data set, as discussed in the lectures.
   # You can use function h.alpha.n() from package robustbase to compute the 
