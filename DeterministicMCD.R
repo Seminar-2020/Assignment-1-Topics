@@ -13,6 +13,20 @@
 ##            similarly structured.  However, feel free to add other arguments
 ##            to the function definitions as needed.
 
+library(robustbase)
+
+#data
+z <- Eredivisie28
+# standardize data using Qn and median 
+rob_std <- function(col) { 
+  std <- (col-median(col))/Qn(col)
+  return(std)
+}
+
+z <-apply(z, 2, "rob_std")
+
+#euclidean distance function 
+euc.dist<- function(x1) sqrt(sum((x1) ^ 2))
 
 
 #### Functions for initial estimators ####
@@ -20,21 +34,21 @@
 # Output: the estimated covariance or correlation matrix
 # Please do not use any other input or output for the initial estimators
 
-# correlation matrix based on the hyperbolic tangent s.1 
+# correlation matrix based on the hyperbolic tangent 
 corHT <- function(z) {
   y  = atan(z)
   s.1 = cor(y, method = "pearson")
   return(s.1)
 }
-s.1 <-corHT(df.s)
+s.1 <-corHT(z)
 
 # spearman correlation matrix s.2
 corSpearman <- function(z) {
-  r <- apply(df.s, 2, rank)
+  r <- apply(z, 2, rank)
   s.2 = cor(r, method = "pearson")
   return(s.2)
 }
-s.2 <-corSpearman(df.s)
+s.2 <-corSpearman(z)
 
 # correlation matrix based on normal scores of the ranks s.3
 corNSR <- function(z) {
@@ -48,39 +62,38 @@ corNSR <- function(z) {
   return(s.3)
   
 }
-s.3 <- corNSR(df.s)
+s.3 <- corNSR(z)
 
-#euclidean distance function 
-euc.dist<- function(x1) sqrt(sum((x1) ^ 2))
 
 # modified spatial sign covariance matrix s.4
 covMSS <- function(z) {
   d  <-  apply(z,1, euc.dist)
-  k  <- df.s/d
+  k  <- z/d
   k[is.na(k)] <- 0  #comment, paper sign, if function
   s.4 <- 1/nrow(z)*crossprod(k)
   return(s.4)
 } 
-s.4 <- covMSS(df.s)
+s.4 <- covMSS(z)
+
 # covariance matrix based on first step of BACON #Juist variables, beter schrijven s.5
 covBACON <- function(z) {
   #Based on the norm 
   dist <- apply(z, 1, euc.dist)
   zz <- cbind(z,dist)
   zz <- zz[order(dist),]
-  z.s <- zz[1:ceiling(nrow(df.s)/2), 1:ncol(z)]
+  z.s <- zz[1:ceiling(nrow(z)/2), 1:ncol(z)]
   s.5 <- cov(z.s)
-  return (s.6)
+  return (s.5)
 } 
-s.5 <- covBACON(df.s)
+s.5 <- covBACON(z)
 
 # raw OGK estimator of the covariance matrix with median and Qn s.6
 rawCovOGK <- function(z) {
   raw<-covOGK(z, sigmamu = s_Qn, rcov = covGK, weight.fn = hard.rejection)
   s.6 <- raw$cov
   return(s.6)
-}  #documentation 
-s.6 <- rawCovOGK(df.s)
+}  
+s.6 <- rawCovOGK(z)
 
 
 
@@ -108,12 +121,7 @@ covDetMCD <- function(x, alpha, ...) {
   n <- nrow(x)
   h <- h.alpha.n(alpha,n,ncol(x))
   
-  # standardize data
-  rob_std <- function(col) { #not sure if Qn() is allowed, estimate for variation in a vector
-    std <- (col-median(col))/Qn(col)
-    return(std)
-  }
-  z <- as.data.frame(apply(x, 2, "rob_std"))
+
   
   # obtain 6 initial estimates
   S1 <- corHT(z)
