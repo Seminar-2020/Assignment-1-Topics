@@ -76,6 +76,7 @@ rawCovOGK <- function(z) {
 covDetMCD <- function(x, alpha, ...) {
   n <- nrow(x)
   h <- h.alpha.n(alpha,n,ncol(x))
+  p <- ncol(x)
   
   # standardize data
   rob_std <- function(col) { #not sure if Qn() is allowed, estimate for variation in a vector
@@ -95,11 +96,11 @@ covDetMCD <- function(x, alpha, ...) {
   
   proper_ev <- function(z,S) { #z cannot be a dataframe but has to be a matrix!
     E <- eigen(S)$vectors
-    B <- z%*%E
-    Qn2 <- apply(z,2,Qn)^2
+    B <- as.matrix(z)%*%E
+    Qn2 <- apply(B,2,Qn)^2
     L <- diag(Qn2)
     Sigma_hat <- E%*%L%*%t(E)
-    mu_hat <- Sigma_hat^(1/2)%*%apply(z%*%Sigma_hat^(-1/2), 2, median) #not 100% sure dat dit de goede median is, returnt nu NA maar testen als een vd functies geschreven is
+    mu_hat <- Sigma_hat^(1/2)%*%apply(as.matrix(z)%*%Sigma_hat^(-1/2), 2, median) #not 100% sure dat dit de goede median is, returnt nu NA maar testen als een vd functies geschreven is
     result <- list("center"= mu_hat, "scatter" = Sigma_hat)
     return(result)
   }
@@ -109,29 +110,29 @@ covDetMCD <- function(x, alpha, ...) {
   for (i in 1:6) {
     result <- proper_ev(z,Sk[[i]])
     results_mu[[i]] <- result[[1]]
-    results_Sigma[[i]] <- result[[2]] #xoxox
+    results_Sigma[[i]] <- result[[2]]
   }
   
-  algorithm <- function(z, mu_hat, Sigma_hat) {
+  algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
     z$distances <- mahalanobis(z, mu_hat, Sigma_hat)^(1/2)
     h0 <- ceiling(nrow(z)/2)
-    h <- h.alpha.n(alpha,nrow(z),ncol(z))
+    h <- h.alpha.n(alpha,nrow(z),p) #don't take distance column into account
     z$rank <- rank(z$distances, ties.method="random")
-    initial_subset <- z[z$rank<=h0,1:(ncol(z)-2)] #pick h0 smallest distances as initial subset and delete columns for distance & rank
-    T_H0 <-colSums(initial_subset)/h0
+    initial_subset <- z[z$rank<=h0,1:p] #pick h0 smallest distances as initial subset and delete columns for distance & rank
+    T_H0 <- colSums(initial_subset)/h0
     T_H0_rep <- matrix(T_H0,nrow=h,ncol=ncol(initial_subset),byrow=TRUE)
-    S_H0 <- (initial_subset-T_H0_rep)*t(initial_subset-T_H_rep)/h0
+    S_H0 <- crossprod(as.matrix(initial_subset-T_H0_rep))/h0
     for (i in 1:1000) {
       # calculate mahalanobis distance for all data points given estimated mean and cov
-      z$distances <- mahalanobis(z, T_H0, S_H0)^(1/2)
+      z$distances <- mahalanobis(z[,1:p], T_H0, S_H0)^(1/2)
       # order all mahalanobis distances
       z$rank <- rank(z$distances, ties.method="random")
-      # pick h smallest, i.e. set weights of h smallest to 1
-      z$weights <- ifelse(z$distances<=h, 1, 0)
+      # pick h smallest, i.e. set "select' of h smallest ranks to 1
+      z$select <- ifelse(z$rank<=h, 1, 0)
       # calculate new mean and cov based on this subset
-      T_H <-colSums(z[z$weights==1,1:(ncol(z)-3)])/h #don't use distances, rank & weights to calculate
-      T_H_rep <- matrix(T_H,nrow=h,ncol=ncol(z)-3,byrow=TRUE)
-      S_H <- (z[z$weights==1,1:(ncol(z)-3)]-T_H_rep)*t(z[z$weights==1,1:(ncol(z)-3)]-T_H_rep)/h
+      T_H <-colSums(z[z$select==1,1:p])/h #don't use distances, rank & weights to calculate
+      T_H_rep <- matrix(T_H,nrow=h,ncol=p,byrow=TRUE)
+      S_H <- crossprod(as.matrix(z[z$select==1,1:p]-T_H_rep))/h
       if (det(S_H)==det(S_H0)) { # stopping criterium
         break
       } 
@@ -148,7 +149,7 @@ covDetMCD <- function(x, alpha, ...) {
   results_weights <- list()
   
   for (i in 1:6) {
-    result <- algorithm(z,results_mu[[i]],results_Sigma[[i]])
+    result <- algorithm(as.matrix(z),results_mu[[i]],results_Sigma[[i]], alpha = 0.6) #should delete = 0.6
     results_raw_center[[i]] <- result[[1]]
     results_raw_cov[[i]] <- result[[2]]
     results_weights[[i]] <- result[[3]]
@@ -180,11 +181,10 @@ covDetMCD <- function(x, alpha, ...) {
   center <-colSums(z[z$weights_r==1,1:(ncol(z)-3)])/sum(z$weights_r) #don't use distances, rank & weights to calculate
   center_rep <- matrix(center,nrow=sum(z$weights_r),ncol=ncol(z)-3,byrow=TRUE)
   cov <- (z[z$weights_r==1,1:(ncol(z)-3)]-center_rep)*t(z[z$weights_r==1,1:(ncol(z)-3)]-center_rep)/sum(z$weights_r)
-  
   # Please note that the subset sizes for the MCD are not simply fractions of 
   # the number of observations in the data set, as discussed in the lectures.
   # You can use function h.alpha.n() from package robustbase to compute the 
-  # subset size.
+  # subset size.                                                                                                  
 }
 
 
