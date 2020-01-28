@@ -61,6 +61,7 @@ corNSR <- function(z) {
 
 # modified spatial sign covariance matrix s.4
 covMSS <- function(z) {
+  z <- as.matrix(z)
   d  <-  apply(z,1, euc.dist)
   k  <- z/d
   k[is.na(k)] <- 0  #comment, paper sign, if function
