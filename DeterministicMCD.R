@@ -109,7 +109,22 @@ covDetMCD <- function(x, alpha, ...) {
   n <- nrow(x)
   p <- ncol(x)
   h <- h.alpha.n(alpha,n,p)
-  z <- x
+  
+  #rob_std <- function(col) { 
+  #  std <- (col-median(col))/Qn(col)
+  #  return(std)
+  #}
+  rob_paper <- function(x) {
+    Q <- apply(x, 2, Qn)
+    medians <- apply(x,2,median)
+    A <- diag(Q^(-1))
+    ones <- matrix(1, nrow=n, ncol=1)
+    v <- medians/Q
+    z <- as.matrix(x)%*%A-ones%*%v
+    # evt nog kolomnamen herstellen
+    return(z)
+  }
+  z <- as.data.frame(rob_paper(x))
   
   # obtain 6 initial estimates
   S1 <- corHT(z)
@@ -145,9 +160,11 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
     h <- h.alpha.n(alpha,n,p) #don't take distance column into account
     z$rank <- rank(z$distances, ties.method="random")
     initial_subset <- z[z$rank<=h0,1:p] #pick h0 smallest distances as initial subset and delete columns for distance & rank
-    T_H0 <- colSums(initial_subset)/h0
-    T_H0_rep <- matrix(T_H0,nrow=h,ncol=ncol(initial_subset),byrow=TRUE)
-    S_H0 <- crossprod(as.matrix(initial_subset-T_H0_rep))/h0
+    #T_H0 <- colSums(initial_subset)/h0
+    T_H0 <- colMeans(initial_subset)
+    #T_H0_rep <- matrix(T_H0,nrow=h,ncol=ncol(initial_subset),byrow=TRUE)
+    #S_H0 <- crossprod(as.matrix(initial_subset-T_H0_rep))/h0
+    S_H0 <- cov(initial_subset)
     for (i in 1:1000) {
       # calculate mahalanobis distance for all data points given estimated mean and cov
       z$distances <- mahalanobis(as.matrix(z[,1:p]), T_H0, S_H0)^(1/2)
@@ -156,9 +173,11 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
       # pick h smallest, i.e. set "select' of h smallest ranks to 1
       z$select <- ifelse(z$rank<=h, 1, 0)
       # calculate new mean and cov based on this subset
-      T_H <-colSums(z[z$select==1,1:p])/h #don't use distances, rank & weights to calculate
-      T_H_rep <- matrix(T_H,nrow=h,ncol=p,byrow=TRUE)
-      S_H <- crossprod(as.matrix(z[z$select==1,1:p]-T_H_rep))/h
+      #T_H <-colSums(z[z$select==1,1:p])/h #don't use distances, rank & weights to calculate
+      #T_H_rep <- matrix(T_H,nrow=h,ncol=p,byrow=TRUE)
+      #S_H <- crossprod(as.matrix(z[z$select==1,1:p]-T_H_rep))/h
+      T_H <- colMeans(z[z$select==1,1:p])
+      S_H <- cov(z[z$select==1,1:p])
       if (det(S_H)==det(S_H0)) { # stopping criterium
         break
       } 
@@ -209,7 +228,17 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
   center_rep <- matrix(center,nrow=sum(z$weights_r),ncol=p,byrow=TRUE)
   cov <- crossprod(as.matrix(z[z$weights_r==1,1:p]-center_rep))/sum(z$weights_r)
   
-  results <- list("rwgt.center"=center, "rwgt.cov" =cov, "weights" = weights, "raw.center" = raw.center, "raw.cov"=raw.cov, "best.raw"=best)
+  Q <- apply(x, 2, Qn)
+  medians <- apply(x,2,median)
+  A <- diag(Q^(-1))
+  v <- -medians/Q
+  #transformed results (in terms of original data)
+  center.x <- (center-v)%*%solve(A)
+  cov.x <- solve(A)%*%cov%*%solve(A)
+  raw.center.x <- (raw.center-v)%*%solve(A)
+  raw.cov.x <- solve(A)%*%raw.cov%*%solve(A) 
+  
+  results <- list("rwgt.center"=center, "rwgt.cov" =cov, "weights" = weights, "raw.center" = raw.center, "raw.cov"=raw.cov, "best.raw"=best, center.x, cov.x, raw.center.x, raw.cov.x)
   return(results)
   # Please note that the subset sizes for the MCD are not simply fractions of 
   # the number of observations in the data set, as discussed in the lectures.
