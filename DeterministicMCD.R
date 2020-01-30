@@ -139,8 +139,7 @@ covDetMCD <- function(x, alpha, ...) {
     results_mu[[i]] <- result[[1]]
     results_Sigma[[i]] <- result[[2]]
   }
-#iteration_medians <- list()
-#iteration_sigmas <- list()
+
 algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
     z$distances <- mahalanobis(as.matrix(z), mu_hat, Sigma_hat)^(1/2)
     h0 <- ceiling(nrow(z)/2)
@@ -180,20 +179,22 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
       S_H0 <- S_H
       # repeat
     }
-    result <- list("raw.center"=T_H0, "raw.cov"=S_H0,"selection"=z$select)
+    result <- list("raw.center"=T_H0, "raw.cov"=S_H0,"selection"=z$select, "distances"=z$distances)
     #result <- list("raw.center"=iteration_medians, "raw.cov"=iteration_sigmas,"selection"=z$select)
     return(result)
   }
   
   results_raw_center <- list()
   results_raw_cov <- list()
-  results_weights <- list()
+  results_selection <- list()
+  results_distances <- list()
   
   for (i in 1:6) {
     result <- algorithm(z,results_mu[[i]],results_Sigma[[i]],alpha)
     results_raw_center[[i]] <- result[[1]]
     results_raw_cov[[i]] <- result[[2]]
-    results_weights[[i]] <- result[[3]]
+    results_selection[[i]] <- result[[3]]
+    results_distances[[i]] <- result[[4]]
   }
   
   best_start <- 1
@@ -212,16 +213,9 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
   raw.center <- results_raw_center[[ind_det[[1]]]] #pick one with smallest determinant
   raw.cov <- results_raw_cov[[ind_det[[1]]]] #pick one with smallest determinant
   
-  z$weights <- results_weights[[ind_det[[1]]]]; #vector with ones and zeros
+  z$selected <- results_selection[[ind_det[[1]]]]; #vector with ones and zeros
   z$indices <- seq(1:nrow(z))
-  best <- z[z$weights==1,4]
-  
-  # Reweighting step to transform and obtain final estimate
-  Q <- sqrt(qchisq(1-0.025, p, ncp = 0, lower.tail = TRUE, log.p = FALSE))
-  z$weights_r <- ifelse(sqrt(mahalanobis(as.matrix(z[,1:p]), raw.center, raw.cov))<=Q, 1, 0)
-  weights <- z$weights_r
-  center <-colMeans(z[z$weights_r==1,1:p]) 
-  cov <- cov(as.matrix(z[z$weights_r==1,1:p]))
+  best <- z[z$selected==1,4]
   
   #Fisher correction factors
   fisher <- function(frac, p) {
@@ -230,7 +224,18 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
     return(c_alpha)
   }
   fisher_cor_raw <- fisher(h/n, p)
+  raw.cov <- fisher_cor_raw*raw.cov
+  
+  # Reweighting step to transform and obtain final estimate
+  Q <- sqrt(qchisq(0.975, p, ncp = 0, lower.tail = TRUE, log.p = FALSE))
+  obs_out_raw <- sum(sqrt(mahalanobis(as.matrix(z[,1:p]), raw.center, raw.cov))>Q)
+  z$weights_r <- ifelse(sqrt(mahalanobis(as.matrix(z[,1:p]), raw.center, raw.cov))<=Q, 1, 0)
+  weights <- z$weights_r
+  center <-colMeans(z[z$weights_r==1,1:p]) 
   fisher_cor <- fisher(sum(z$weights_r)/n,p)
+  cov <- fisher_cor*cov(as.matrix(z[z$weights_r==1,1:p]))
+  
+  obs_out_reweighted <- sum(sqrt(mahalanobis(as.matrix(z[,1:p]), center, cov))>Q)
   
   Var <- apply(x, 2, mad)
   medians <- apply(x,2,median)
@@ -239,44 +244,49 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
   
   #transformed results (in terms of original data)
   center.x <- (center-v)%*%solve(A)
-  cov.x <- solve(A)%*%(fisher_cor*cov)%*%solve(A)
+  cov.x <- solve(A)%*%cov%*%solve(A)
   raw.center.x <- (raw.center-v)%*%solve(A)
-  raw.cov.x <- solve(A)%*%(fisher_cor_raw*raw.cov)%*%solve(A) 
+  raw.cov.x <- solve(A)%*%raw.cov%*%solve(A) 
   
-  results <- list("rwgt.center"=center, "rwgt.cov" =cov, "weights" = weights, "raw.center" = raw.center, "raw.cov"=raw.cov, "best.raw"=best, "center.x"=as.numeric(center.x),"cov.x"= cov.x,"raw.center.x"= as.numeric(raw.center.x),"raw.cov.x"= raw.cov.x)#, iteration_medians, iteration_sigmas)
+  results <- list("rwgt.center"=center, 
+                  "rwgt.cov" =cov, 
+                  "weights" = weights, 
+                  "raw.center" = raw.center, 
+                  "raw.cov"=raw.cov, 
+                  "best.raw"=best, 
+                  "center.x"=as.numeric(center.x),
+                  "cov.x"= cov.x,
+                  "raw.center.x"= as.numeric(raw.center.x),
+                  "raw.cov.x"= raw.cov.x,
+                  "outliers_raw"=obs_out_raw,
+                  "outliers"=obs_out_reweighted)
+  
   return(results)
 }
 
-E_center <- colMeans(Eredivisie28)
-E_cov <- cov(Eredivisie28)
-E_radius <- sqrt(qchisq(0.975, df = p))
+plot_ellipses <- function(original_data,data_used,mcd_obj) {
+  library(car)
+  ellipse_mcd_raw <- data.frame(ellipse(center=mcd_obj$raw.center.x,
+                                        shape = mcd_obj$raw.cov.x,
+                                        radius=sqrt(qchisq(0.975, df = p)),
+                                        segments=100,
+                                        draw=FALSE))
+  
+  ellipse_mcd <- data.frame(ellipse(center=mcd_obj$center.x,
+                                    shape = mcd_obj$cov.x,
+                                    radius=sqrt(qchisq(0.975, df = p)),
+                                    segments=100,
+                                    draw=FALSE))
+  
+  colnames(ellipse_mcd_raw) <- colnames(ellipse_mcd) <- colnames(original_data)
+  
+  ggplot(data_used, aes(Age, MarketValue)) +
+    geom_point() +
+    geom_polygon(data=ellipse_mcd_raw, color="red", fill="red", alpha=0.3) +
+    geom_polygon(data=ellipse_mcd, color="yellow", fill="yellow", alpha=0.3) 
+}
+plot_ellipses(Eredivisie28, Eredivisie_trans,covDetMCD(Eredivisie_trans,alpha=0.75))
 
-library(car)
-E_ellipse <- data.frame(ellipse(center=E_center,
-                                shape=E_cov,
-                                radius=E_radius,
-                                segments=100,
-                                draw=FALSE))
-
-ellipse_mcd_raw <- data.frame(ellipse(center=results_own$raw.center.x,
-                                      shape = results_own$raw.cov.x,
-                                      radius=sqrt(qchisq(0.975, df = p)),
-                                      segments=100,
-                                      draw=FALSE))
-
-ellipse_mcd <- data.frame(ellipse(center=results_own$center.x,
-                                      shape = results_own$cov.x,
-                                      radius=sqrt(qchisq(0.975, df = p)),
-                                      segments=100,
-                                      draw=FALSE))
-
-colnames(ellipse_mcd_raw) <- colnames(ellipse_mcd) <- colnames(E_ellipse) <- colnames(Eredivisie28)
-
-ggplot(Eredivisie28, aes(Age, MarketValue)) +
-  geom_point() +
-  geom_polygon(data=ellipse_mcd_raw, color="red", fill="red", alpha=0.3) +
-  geom_polygon(data=ellipse_mcd, color="yellow", fill="yellow", alpha=0.3) 
-#+ geom_polygon(data=E_ellipse, color="yellow", fill="yellow", alpha=0.3)
 
 # compare to
 results <- covMcd(log(Eredivisie28), alpha=0.75, nsamp="deterministic", use.correction=FALSE)
