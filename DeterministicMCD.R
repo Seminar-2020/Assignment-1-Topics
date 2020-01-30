@@ -238,15 +238,26 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
   cov <- cov(as.matrix(z[z$weights_r==1,1:p]))
   #cov <- crossprod(as.matrix(z[z$weights_r==1,1:p]-center_rep))/sum(z$weights_r)
   
+  #Fisher correction factors
+  fisher <- function(frac, p) {
+    chisq <- qchisq(frac, p)
+    c_alpha <- frac/pgamma(chisq/2, p/2+1,1)
+    return(c_alpha)
+  }
+  fisher_cor_raw <- fisher(h/n, p)
+  fisher_cor <- fisher(sum(z$weights_r)/n,p)
+  
   Q <- apply(x, 2, Qn)
   medians <- apply(x,2,median)
   A <- diag(Q^(-1))
   v <- -medians/Q
+  
   #transformed results (in terms of original data)
   center.x <- (center-v)%*%solve(A)
-  cov.x <- solve(A)%*%cov%*%solve(A)
+  cov.x <- solve(A)%*%(fisher_cor*cov)%*%solve(A)
   raw.center.x <- (raw.center-v)%*%solve(A)
-  raw.cov.x <- solve(A)%*%raw.cov%*%solve(A) 
+  raw.cov.x <- solve(A)%*%(fisher_cor_raw*raw.cov)%*%solve(A) 
+  
   
   results <- list("rwgt.center"=center, "rwgt.cov" =cov, "weights" = weights, "raw.center" = raw.center, "raw.cov"=raw.cov, "best.raw"=best, "center.x"=center.x,"cov.x"= cov.x,"raw.center.x"= raw.center.x,"raw.cov.x"= raw.cov.x)#, iteration_medians, iteration_sigmas)
   return(results)
