@@ -15,15 +15,6 @@
 
 library(robustbase)
 
-#data
-z <- Eredivisie28
-# standardize data using Qn and median 
-rob_std <- function(col) { 
-  std <- (col-median(col))/Qn(col)
-  return(std)
-}
-z <-as.data.frame(apply(z, 2, "rob_std")) #NOG CHECKEN!!!!
-
 #euclidean distance function 
 euc.dist<- function(x1) sqrt(sum((x1) ^ 2))
 
@@ -109,16 +100,12 @@ covDetMCD <- function(x, alpha, ...) {
   p <- ncol(x)
   h <- h.alpha.n(alpha,n,p)
   
-  #rob_std <- function(col) { 
-  #  std <- (col-median(col))/Qn(col)
-  #  return(std)
-  #}
   rob_paper <- function(x) {
-    Q <- apply(x, 2, Qn)
+    Var <- apply(x, 2, mad)
     medians <- apply(x,2,median)
-    A <- diag(Q^(-1))
+    A <- diag(Var^(-1))
     ones <- matrix(1, nrow=n, ncol=1)
-    v <- medians/Q
+    v <- medians/Var
     z <- as.matrix(x)%*%A-ones%*%v
     # evt nog kolomnamen herstellen
     return(z)
@@ -137,8 +124,8 @@ covDetMCD <- function(x, alpha, ...) {
   proper_ev <- function(z,S) { #z cannot be a dataframe but has to be a matrix!
     E <- eigen(S)$vectors
     B <- as.matrix(z)%*%E
-    Qn2 <- apply(B,2,Qn)^2
-    L <- diag(Qn2)
+    V <- apply(B,2,mad)^2
+    L <- diag(V)
     Sigma_hat <- E%*%L%*%t(E)
     mu_hat <- chol(Sigma_hat)%*%apply(as.matrix(z)%*%solve(chol(Sigma_hat)), 2, median)
     result <- list("center"= mu_hat, "scatter" = Sigma_hat)
@@ -222,21 +209,19 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
   }
   det_1 <- det(results_raw_cov[[1]])
   ind_det <- best_det(det_1) 
-  raw.cov <- results_raw_cov[[ind_det[[1]]]] #pick one with smallest determinant
   raw.center <- results_raw_center[[ind_det[[1]]]] #pick one with smallest determinant
+  raw.cov <- results_raw_cov[[ind_det[[1]]]] #pick one with smallest determinant
   
   z$weights <- results_weights[[ind_det[[1]]]]; #vector with ones and zeros
   z$indices <- seq(1:nrow(z))
   best <- z[z$weights==1,4]
   
   # Reweighting step to transform and obtain final estimate
-  Q <- sqrt(qchisq(1-0.025, ncol(z), ncp = 0, lower.tail = TRUE, log.p = FALSE))
+  Q <- sqrt(qchisq(1-0.025, p, ncp = 0, lower.tail = TRUE, log.p = FALSE))
   z$weights_r <- ifelse(sqrt(mahalanobis(as.matrix(z[,1:p]), raw.center, raw.cov))<=Q, 1, 0)
   weights <- z$weights_r
-  center <-colMeans(z[z$weights_r==1,1:p]) #don't use distances, rank & weights to calculate
-  #center_rep <- matrix(center,nrow=sum(z$weights_r),ncol=p,byrow=TRUE)
+  center <-colMeans(z[z$weights_r==1,1:p]) 
   cov <- cov(as.matrix(z[z$weights_r==1,1:p]))
-  #cov <- crossprod(as.matrix(z[z$weights_r==1,1:p]-center_rep))/sum(z$weights_r)
   
   #Fisher correction factors
   fisher <- function(frac, p) {
@@ -247,10 +232,10 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
   fisher_cor_raw <- fisher(h/n, p)
   fisher_cor <- fisher(sum(z$weights_r)/n,p)
   
-  Q <- apply(x, 2, Qn)
+  Var <- apply(x, 2, mad)
   medians <- apply(x,2,median)
-  A <- diag(Q^(-1))
-  v <- -medians/Q
+  A <- diag(Var^(-1))
+  v <- -medians/Var
   
   #transformed results (in terms of original data)
   center.x <- (center-v)%*%solve(A)
@@ -258,16 +243,43 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
   raw.center.x <- (raw.center-v)%*%solve(A)
   raw.cov.x <- solve(A)%*%(fisher_cor_raw*raw.cov)%*%solve(A) 
   
-  
-  results <- list("rwgt.center"=center, "rwgt.cov" =cov, "weights" = weights, "raw.center" = raw.center, "raw.cov"=raw.cov, "best.raw"=best, "center.x"=center.x,"cov.x"= cov.x,"raw.center.x"= raw.center.x,"raw.cov.x"= raw.cov.x)#, iteration_medians, iteration_sigmas)
+  results <- list("rwgt.center"=center, "rwgt.cov" =cov, "weights" = weights, "raw.center" = raw.center, "raw.cov"=raw.cov, "best.raw"=best, "center.x"=as.numeric(center.x),"cov.x"= cov.x,"raw.center.x"= as.numeric(raw.center.x),"raw.cov.x"= raw.cov.x)#, iteration_medians, iteration_sigmas)
   return(results)
-  # Please note that the subset sizes for the MCD are not simply fractions of 
-  # the number of observations in the data set, as discussed in the lectures.
-  # You can use function h.alpha.n() from package robustbase to compute the 
-  # subset size.                                                                                                  
 }
 
+E_center <- colMeans(Eredivisie28)
+E_cov <- cov(Eredivisie28)
+E_radius <- sqrt(qchisq(0.975, df = p))
 
+library(car)
+E_ellipse <- data.frame(ellipse(center=E_center,
+                                shape=E_cov,
+                                radius=E_radius,
+                                segments=100,
+                                draw=FALSE))
+
+ellipse_mcd_raw <- data.frame(ellipse(center=results_own$raw.center.x,
+                                      shape = results_own$raw.cov.x,
+                                      radius=sqrt(qchisq(0.975, df = p)),
+                                      segments=100,
+                                      draw=FALSE))
+
+ellipse_mcd <- data.frame(ellipse(center=results_own$center.x,
+                                      shape = results_own$cov.x,
+                                      radius=sqrt(qchisq(0.975, df = p)),
+                                      segments=100,
+                                      draw=FALSE))
+
+colnames(ellipse_mcd_raw) <- colnames(ellipse_mcd) <- colnames(E_ellipse) <- colnames(Eredivisie28)
+
+ggplot(Eredivisie28, aes(Age, MarketValue)) +
+  geom_point() +
+  geom_polygon(data=ellipse_mcd_raw, color="red", fill="red", alpha=0.3) +
+  geom_polygon(data=ellipse_mcd, color="yellow", fill="yellow", alpha=0.3) 
+#+ geom_polygon(data=E_ellipse, color="yellow", fill="yellow", alpha=0.3)
+
+# compare to
+results <- covMcd(log(Eredivisie28), alpha=0.75, nsamp="deterministic", use.correction=FALSE)
 
 ## Function for regression based on the deterministic MCD
 
