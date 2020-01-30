@@ -27,7 +27,6 @@ z <-as.data.frame(apply(z, 2, "rob_std")) #NOG CHECKEN!!!!
 #euclidean distance function 
 euc.dist<- function(x1) sqrt(sum((x1) ^ 2))
 
-
 #### Functions for initial estimators ####
 # Input: the standardized data matrix z
 # Output: the estimated covariance or correlation matrix
@@ -81,7 +80,7 @@ covBACON <- function(z) {
 
 # raw OGK estimator of the covariance matrix with median and Qn s.6
 rawCovOGK <- function(z) {
-  raw<-covOGK(z,n.iter=1,sigmamu = s_Qn, rcov = covGK, weight.fn = hard.rejection)
+  raw<-covOGK(z,n.iter=2,sigmamu = s_Qn, rcov = covGK, weight.fn = hard.rejection)
   s.6 <- raw$cov
   return(s.6)
 }  
@@ -141,7 +140,7 @@ covDetMCD <- function(x, alpha, ...) {
     Qn2 <- apply(B,2,Qn)^2
     L <- diag(Qn2)
     Sigma_hat <- E%*%L%*%t(E)
-    mu_hat <- chol(Sigma_hat)%*%apply(as.matrix(z)%*%chol(Sigma_hat), 2, median)
+    mu_hat <- chol(Sigma_hat)%*%apply(as.matrix(z)%*%solve(chol(Sigma_hat)), 2, median)
     result <- list("center"= mu_hat, "scatter" = Sigma_hat)
     return(result)
   }
@@ -153,7 +152,8 @@ covDetMCD <- function(x, alpha, ...) {
     results_mu[[i]] <- result[[1]]
     results_Sigma[[i]] <- result[[2]]
   }
-  
+#iteration_medians <- list()
+#iteration_sigmas <- list()
 algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
     z$distances <- mahalanobis(as.matrix(z), mu_hat, Sigma_hat)^(1/2)
     h0 <- ceiling(nrow(z)/2)
@@ -162,9 +162,13 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
     initial_subset <- z[z$rank<=h0,1:p] #pick h0 smallest distances as initial subset and delete columns for distance & rank
     #T_H0 <- colSums(initial_subset)/h0
     T_H0 <- colMeans(initial_subset)
+    #iteration_medians[[1]] <- T_H0
     #T_H0_rep <- matrix(T_H0,nrow=h,ncol=ncol(initial_subset),byrow=TRUE)
     #S_H0 <- crossprod(as.matrix(initial_subset-T_H0_rep))/h0
     S_H0 <- cov(initial_subset)
+    print(T_H0)
+    print(S_H0)
+    #iteration_sigmas[[1]] <- S_H0
     for (i in 1:1000) {
       # calculate mahalanobis distance for all data points given estimated mean and cov
       z$distances <- mahalanobis(as.matrix(z[,1:p]), T_H0, S_H0)^(1/2)
@@ -177,7 +181,11 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
       #T_H_rep <- matrix(T_H,nrow=h,ncol=p,byrow=TRUE)
       #S_H <- crossprod(as.matrix(z[z$select==1,1:p]-T_H_rep))/h
       T_H <- colMeans(z[z$select==1,1:p])
+      print(T_H)
+      #iteration_medians[[i+1]] <- T_H
       S_H <- cov(z[z$select==1,1:p])
+      print(S_H)
+      #iteration_sigmas[[i+1]] <- S_H
       if (det(S_H)==det(S_H0)) { # stopping criterium
         break
       } 
@@ -186,6 +194,7 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
       # repeat
     }
     result <- list("raw.center"=T_H0, "raw.cov"=S_H0,"selection"=z$select)
+    #result <- list("raw.center"=iteration_medians, "raw.cov"=iteration_sigmas,"selection"=z$select)
     return(result)
   }
   
@@ -224,9 +233,10 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
   Q <- sqrt(qchisq(1-0.025, ncol(z), ncp = 0, lower.tail = TRUE, log.p = FALSE))
   z$weights_r <- ifelse(sqrt(mahalanobis(as.matrix(z[,1:p]), raw.center, raw.cov))<=Q, 1, 0)
   weights <- z$weights_r
-  center <-colSums(z[z$weights_r==1,1:p])/sum(z$weights_r) #don't use distances, rank & weights to calculate
-  center_rep <- matrix(center,nrow=sum(z$weights_r),ncol=p,byrow=TRUE)
-  cov <- crossprod(as.matrix(z[z$weights_r==1,1:p]-center_rep))/sum(z$weights_r)
+  center <-colMeans(z[z$weights_r==1,1:p]) #don't use distances, rank & weights to calculate
+  #center_rep <- matrix(center,nrow=sum(z$weights_r),ncol=p,byrow=TRUE)
+  cov <- cov(as.matrix(z[z$weights_r==1,1:p]))
+  #cov <- crossprod(as.matrix(z[z$weights_r==1,1:p]-center_rep))/sum(z$weights_r)
   
   Q <- apply(x, 2, Qn)
   medians <- apply(x,2,median)
@@ -238,7 +248,7 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
   raw.center.x <- (raw.center-v)%*%solve(A)
   raw.cov.x <- solve(A)%*%raw.cov%*%solve(A) 
   
-  results <- list("rwgt.center"=center, "rwgt.cov" =cov, "weights" = weights, "raw.center" = raw.center, "raw.cov"=raw.cov, "best.raw"=best, center.x, cov.x, raw.center.x, raw.cov.x)
+  results <- list("rwgt.center"=center, "rwgt.cov" =cov, "weights" = weights, "raw.center" = raw.center, "raw.cov"=raw.cov, "best.raw"=best, "center.x"=center.x,"cov.x"= cov.x,"raw.center.x"= raw.center.x,"raw.cov.x"= raw.cov.x)#, iteration_medians, iteration_sigmas)
   return(results)
   # Please note that the subset sizes for the MCD are not simply fractions of 
   # the number of observations in the data set, as discussed in the lectures.
