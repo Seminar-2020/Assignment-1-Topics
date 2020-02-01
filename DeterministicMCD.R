@@ -1,6 +1,6 @@
 # --------------------------------------------------------------------
 # Author:
-# Group 14: Tasia Bueno de Mesquita (), Rosa ten Kate (), Frederique Ram (431623), Tiemen de Jong ()
+# Group 14: Tasia Bueno de Mesquita (424406), Rosa ten Kate (413775), Frederique Ram (431623), Tiemen de Jong (430839)
 # --------------------------------------------------------------------
 
 ## Use this code skeleton to implement the deterministic MCD and the plug-in
