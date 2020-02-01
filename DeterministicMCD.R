@@ -81,7 +81,6 @@ rawCovOGK <- function(z) {
 # Input:
 # x ....... data matrix
 # alpha ... proportion of observations to be used for subset size
-# anything else you need
 
 # Output
 # A list with the following components:
@@ -89,99 +88,35 @@ rawCovOGK <- function(z) {
 # cov .......... covariance matrix of the reweighted estimator
 # weights ...... binary weights of the observations used for the reweighted
 #                estimator (0 if outlier, 1 if used for estimation)
+# weights_final. binary vector indicating if the observations falls within 
+#                the confidence ellips of the reweighted estimators 
 # raw.center ... mean of the raw estimator
 # raw.cov ...... covariance matrix of the raw estimator
 # best ......... indices of the observations in the best subset found by the
 #                raw estimator
-# any other output you want to return
+# raw.n.outliers number of outliers according to the raw estimator
+# n.outliers ... number of outliers according to the reweighted estimator
 
-covDetMCD <- function(x, alpha, ...) {
+covDetMCD <- function(x, alpha) {
   n <- nrow(x)
   p <- ncol(x)
   h <- h.alpha.n(alpha,n,p)
+  z <- as.data.frame(rob_standard(x))
   
-  rob_paper <- function(x) {
-    Var <- apply(x, 2, mad)
-    medians <- apply(x,2,median)
-    A <- diag(Var^(-1))
-    ones <- matrix(1, nrow=n, ncol=1)
-    v <- medians/Var
-    z <- as.matrix(x)%*%A-ones%*%v
-    # evt nog kolomnamen herstellen
-    return(z)
-  }
-  z <- as.data.frame(rob_paper(x))
-  
-  # obtain 6 initial estimates
-  S1 <- corHT(z)
-  S2 <- corSpearman(z)
-  S3 <- corNSR(z)
-  S4 <- covMSS(z)
-  S5 <- covBACON(z)
-  S6 <- rawCovOGK(z)
-  Sk <- list(S1,S2,S3,S4,S5,S6)
-  
-  proper_ev <- function(z,S) { #z cannot be a dataframe but has to be a matrix!
-    E <- eigen(S)$vectors
-    B <- as.matrix(z)%*%E
-    V <- apply(B,2,mad)^2
-    L <- diag(V)
-    Sigma_hat <- E%*%L%*%t(E)
-    mu_hat <- chol(Sigma_hat)%*%apply(as.matrix(z)%*%solve(chol(Sigma_hat)), 2, median)
-    result <- list("center"= mu_hat, "scatter" = Sigma_hat)
-    return(result)
-  }
+  #obtain 6 initial estimates and place them in a list
+  Sk <- list("S1" = corHT(z),
+             "S2" = corSpearman(z),
+             "S3" = corNSR(z),
+             "S4" = covMSS(z),
+             "S5" = covBACON(z),
+             "S6" = rawCovOGK(z))
   
   results_mu <- list()
   results_Sigma <- list()
   for (i in 1:6) {
     result <- proper_ev(z,Sk[[i]])
-    results_mu[[i]] <- result[[1]]
-    results_Sigma[[i]] <- result[[2]]
-  }
-
-algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
-    z$distances <- mahalanobis(as.matrix(z), mu_hat, Sigma_hat)^(1/2)
-    h0 <- ceiling(nrow(z)/2)
-    h <- h.alpha.n(alpha,n,p) #don't take distance column into account
-    z$rank <- rank(z$distances, ties.method="random")
-    initial_subset <- z[z$rank<=h0,1:p] #pick h0 smallest distances as initial subset and delete columns for distance & rank
-    #T_H0 <- colSums(initial_subset)/h0
-    T_H0 <- colMeans(initial_subset)
-    #iteration_medians[[1]] <- T_H0
-    #T_H0_rep <- matrix(T_H0,nrow=h,ncol=ncol(initial_subset),byrow=TRUE)
-    #S_H0 <- crossprod(as.matrix(initial_subset-T_H0_rep))/h0
-    S_H0 <- cov(initial_subset)
-    print(T_H0)
-    print(S_H0)
-    #iteration_sigmas[[1]] <- S_H0
-    for (i in 1:1000) {
-      # calculate mahalanobis distance for all data points given estimated mean and cov
-      z$distances <- mahalanobis(as.matrix(z[,1:p]), T_H0, S_H0)^(1/2)
-      # order all mahalanobis distances
-      z$rank <- rank(z$distances, ties.method="random")
-      # pick h smallest, i.e. set "select' of h smallest ranks to 1
-      z$select <- ifelse(z$rank<=h, 1, 0)
-      # calculate new mean and cov based on this subset
-      #T_H <-colSums(z[z$select==1,1:p])/h #don't use distances, rank & weights to calculate
-      #T_H_rep <- matrix(T_H,nrow=h,ncol=p,byrow=TRUE)
-      #S_H <- crossprod(as.matrix(z[z$select==1,1:p]-T_H_rep))/h
-      T_H <- colMeans(z[z$select==1,1:p])
-      print(T_H)
-      #iteration_medians[[i+1]] <- T_H
-      S_H <- cov(z[z$select==1,1:p])
-      print(S_H)
-      #iteration_sigmas[[i+1]] <- S_H
-      if (det(S_H)==det(S_H0)) { # stopping criterium
-        break
-      } 
-      T_H0 <- T_H
-      S_H0 <- S_H
-      # repeat
-    }
-    result <- list("raw.center"=T_H0, "raw.cov"=S_H0,"selection"=z$select, "distances"=z$distances)
-    #result <- list("raw.center"=iteration_medians, "raw.cov"=iteration_sigmas,"selection"=z$select)
-    return(result)
+    results_mu[[i]] <- result[[1]] #list with 6 initial center estimates
+    results_Sigma[[i]] <- result[[2]] #list with 6 initial scatter estimates 
   }
   
   results_raw_center <- list()
@@ -194,11 +129,106 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
     results_raw_center[[i]] <- result[[1]]
     results_raw_cov[[i]] <- result[[2]]
     results_selection[[i]] <- result[[3]]
-    results_distances[[i]] <- result[[4]]
   }
   
-  best_start <- 1
+  ind_det <- best_det(det(results_raw_cov[[1]])) #use the determinant of estimate 1 as an initial benchmark 
+  raw.center.z <- results_raw_center[[ind_det[[1]]]] 
+  fisher_cor_raw <- fisher(h/n, p)
+  raw.cov.z <- fisher_cor_raw*results_raw_cov[[ind_det[[1]]]]
+  z$selected <- results_selection[[ind_det[[1]]]]
+  z$indices <- seq(1:nrow(z))
+  best <- z[z$selected==1,4]
+  
+  #reweighting step
+  Q <- sqrt(qchisq(0.975, p))
+  obs_out_raw <- sum(sqrt(mahalanobis(as.matrix(z[,1:p]), raw.center.z, raw.cov.z))>Q)
+  z$weights_r <- ifelse(sqrt(mahalanobis(as.matrix(z[,1:p]), raw.center.z, raw.cov.z))<=Q, 1, 0)
+  weights <- z$weights_r
+  center.z <-colMeans(z[z$weights_r==1,1:p]) 
+  fisher_cor <- fisher(sum(z$weights_r)/n,p)
+  cov.z <- fisher_cor*cov(as.matrix(z[z$weights_r==1,1:p]))
+  obs_out_reweighted <- sum(sqrt(mahalanobis(as.matrix(z[,1:p]), center.z, cov.z))>Q)
+  weights_final <- z$weights_final <- ifelse(sqrt(mahalanobis(as.matrix(z[,1:p]), center.z, cov.z))<=Q,1,0)
+  
+  #reverse standardization, transform back to the units
+  Var <- apply(x, 2, mad)
+  medians <- apply(x,2,median)
+  A <- diag(Var^(-1))
+  v <- -medians/Var
+  center <- (center.z-v)%*%solve(A)
+  cov <- solve(A)%*%cov.z%*%solve(A)
+  raw.center <- (raw.center.z-v)%*%solve(A)
+  raw.cov <- solve(A)%*%raw.cov.z%*%solve(A) 
+  
+  #gather all important results
+  results <- list("center"=as.numeric(center), 
+                  "cov" =cov, 
+                  "weights" = weights,
+                  "weights_final"=weights_final,
+                  "raw.center" = as.numeric(raw.center), 
+                  "raw.cov"=raw.cov, 
+                  "best"=best, 
+                  "raw.n.outliers"=obs_out_raw,
+                  "n.outliers"=obs_out_reweighted)
+  return(results)
+  
+  # standardizes a dataframe by subtracting the median and dividing by the MAD (instead of Qn proposed in paper)
+  # returns the standardized dataframe
+  rob_standard <- function(x) {
+    Var <- apply(x, 2, mad)
+    medians <- apply(x,2,median)
+    A <- diag(Var^(-1))
+    ones <- matrix(1, nrow=n, ncol=1)
+    v <- medians/Var
+    z <- as.matrix(x)%*%A-ones%*%v
+    return(z)
+  }
+  # transform S into initial scatter estimate with accurate eigenvalues
+  # obtain an initial estimate for the center
+  # returns a list with covariance and center estimate for z
+  proper_ev <- function(z,S) {
+    E <- eigen(S)$vectors
+    B <- as.matrix(z)%*%E
+    V <- apply(B,2,mad)^2
+    L <- diag(V)
+    Sigma_hat <- E%*%L%*%t(E)
+    mu_hat <- chol(Sigma_hat)%*%apply(as.matrix(z)%*%solve(chol(Sigma_hat)), 2, median)
+    result <- list("center"= mu_hat, "scatter" = Sigma_hat)
+    return(result)
+  }
+  #find the optimal subset of h observations given the initial center and scatter estimates
+  #return the estimated center, scatter and which h variables are selected in the subset 
+  algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
+    #compute statistical distances and select h0 smallest
+    z$distances <- mahalanobis(as.matrix(z), mu_hat, Sigma_hat)^(1/2)
+    h0 <- ceiling(nrow(z)/2)
+    h <- h.alpha.n(alpha,n,p) 
+    z$rank <- rank(z$distances, ties.method="random") #method set to "random" to avoid similar ranks
+    initial_subset <- z[z$rank<=h0,1:p] 
+    #compute new center and scatter estimate based on the concentrated subset
+    T_H0 <- colMeans(initial_subset)
+    S_H0 <- cov(initial_subset)
+    #compute distances based on this subset and iterate this procedure until convergence
+    for (i in 1:1000) {
+      z$distances <- mahalanobis(as.matrix(z[,1:p]), T_H0, S_H0)^(1/2)
+      z$rank <- rank(z$distances, ties.method="random")
+      z$select <- ifelse(z$rank<=h, 1, 0) #pick h smallest, i.e. set "select' of h smallest ranks to 1
+      T_H <- colMeans(z[z$select==1,1:p])
+      S_H <- cov(z[z$select==1,1:p])
+      if (det(S_H)==det(S_H0)) { # stopping criterion
+        break
+      } 
+      #if not yet converged: update estimates and iterate again
+      T_H0 <- T_H
+      S_H0 <- S_H
+    }
+    result <- list("raw.center"=T_H0, "raw.cov"=S_H0,"selection"=z$select)
+    return(result)
+  }
+  #identify which of the 6 estimators has the lowest determinant
+  #return a list with the index of the chosen initial estimator and the corresponding determinant value
   best_det <- function(benchmark){
+    best_start <- 1
     for (i in 2:6) {
       if (det(results_raw_cov[[i]])<benchmark) {
         best_start <- i
@@ -208,88 +238,40 @@ algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
     result <- list(best_start, benchmark)
     return(result)
   }
-  det_1 <- det(results_raw_cov[[1]])
-  ind_det <- best_det(det_1) 
-  raw.center <- results_raw_center[[ind_det[[1]]]] #pick one with smallest determinant
-  raw.cov <- results_raw_cov[[ind_det[[1]]]] #pick one with smallest determinant
-  
-  z$selected <- results_selection[[ind_det[[1]]]]; #vector with ones and zeros
-  z$indices <- seq(1:nrow(z))
-  best <- z[z$selected==1,4]
-  
-  #Fisher correction factors
+  #compute the fisher correction factors based on the fraction of observations used and the number of variables
   fisher <- function(frac, p) {
     chisq <- qchisq(frac, p)
     c_alpha <- frac/pgamma(chisq/2, p/2+1,1)
     return(c_alpha)
   }
-  fisher_cor_raw <- fisher(h/n, p)
-  raw.cov <- fisher_cor_raw*raw.cov
-  
-  # Reweighting step to transform and obtain final estimate
-  Q <- sqrt(qchisq(0.975, p, ncp = 0, lower.tail = TRUE, log.p = FALSE))
-  obs_out_raw <- sum(sqrt(mahalanobis(as.matrix(z[,1:p]), raw.center, raw.cov))>Q)
-  z$weights_r <- ifelse(sqrt(mahalanobis(as.matrix(z[,1:p]), raw.center, raw.cov))<=Q, 1, 0)
-  weights <- z$weights_r
-  center <-colMeans(z[z$weights_r==1,1:p]) 
-  fisher_cor <- fisher(sum(z$weights_r)/n,p)
-  cov <- fisher_cor*cov(as.matrix(z[z$weights_r==1,1:p]))
-  
-  obs_out_reweighted <- sum(sqrt(mahalanobis(as.matrix(z[,1:p]), center, cov))>Q)
-  
-  Var <- apply(x, 2, mad)
-  medians <- apply(x,2,median)
-  A <- diag(Var^(-1))
-  v <- -medians/Var
-  
-  #transformed results (in terms of original data)
-  center.x <- (center-v)%*%solve(A)
-  cov.x <- solve(A)%*%cov%*%solve(A)
-  raw.center.x <- (raw.center-v)%*%solve(A)
-  raw.cov.x <- solve(A)%*%raw.cov%*%solve(A) 
-  
-  results <- list("rwgt.center"=center, 
-                  "rwgt.cov" =cov, 
-                  "weights" = weights, 
-                  "raw.center" = raw.center, 
-                  "raw.cov"=raw.cov, 
-                  "best.raw"=best, 
-                  "center.x"=as.numeric(center.x),
-                  "cov.x"= cov.x,
-                  "raw.center.x"= as.numeric(raw.center.x),
-                  "raw.cov.x"= raw.cov.x,
-                  "outliers_raw"=obs_out_raw,
-                  "outliers"=obs_out_reweighted)
-  
-  return(results)
 }
 
-plot_ellipses <- function(original_data,data_used,mcd_obj) {
-  library(car)
-  ellipse_mcd_raw <- data.frame(ellipse(center=mcd_obj$raw.center.x,
-                                        shape = mcd_obj$raw.cov.x,
+#this function uses the output of covDetMCD to construct a plot of the data and confidence ellipses
+plot_ellipses <- function(data,mcd_obj) {
+  require(car)
+  require(ggplot2)
+  ellipse_mcd_raw <- data.frame(ellipse(center=mcd_obj$raw.center,
+                                        shape = mcd_obj$raw.cov,
                                         radius=sqrt(qchisq(0.975, df = p)),
                                         segments=100,
                                         draw=FALSE))
   
-  ellipse_mcd <- data.frame(ellipse(center=mcd_obj$center.x,
-                                    shape = mcd_obj$cov.x,
+  ellipse_mcd <- data.frame(ellipse(center=mcd_obj$center,
+                                    shape = mcd_obj$cov,
                                     radius=sqrt(qchisq(0.975, df = p)),
                                     segments=100,
                                     draw=FALSE))
   
-  colnames(ellipse_mcd_raw) <- colnames(ellipse_mcd) <- colnames(original_data)
+  colnames(ellipse_mcd_raw) <- colnames(ellipse_mcd) <- colnames(data)
   
-  ggplot(data_used, aes(Age, MarketValue)) +
+  ggplot(data, aes(Age, MarketValue)) +
     geom_point() +
-    geom_polygon(data=ellipse_mcd_raw, color="red", fill="red", alpha=0.3) +
-    geom_polygon(data=ellipse_mcd, color="yellow", fill="yellow", alpha=0.3) 
+    geom_polygon(color="red", fill="red", alpha=0.3, data=ellipse_mcd_raw) +
+    geom_polygon(color="yellow", fill="yellow", alpha=0.3, data=ellipse_mcd)
 }
-plot_ellipses(Eredivisie28, Eredivisie_trans,covDetMCD(Eredivisie_trans,alpha=0.75))
+plot_ellipses(as.data.frame(log(Eredivisie28)), covDetMCD(as.data.frame(log(Eredivisie28)),alpha=0.75))
 
-
-# compare to
-results <- covMcd(log(Eredivisie28), alpha=0.75, nsamp="deterministic", use.correction=FALSE)
+covDetMCD(as.data.frame(log(Eredivisie28)),alpha=0.75)
 
 ## Function for regression based on the deterministic MCD
 
