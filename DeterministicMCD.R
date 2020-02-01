@@ -271,8 +271,6 @@ plot_ellipses <- function(data,mcd_obj) {
 }
 plot_ellipses(as.data.frame(log(Eredivisie28)), covDetMCD(as.data.frame(log(Eredivisie28)),alpha=0.75))
 
-covDetMCD(as.data.frame(log(Eredivisie28)),alpha=0.75)
-
 ## Function for regression based on the deterministic MCD
 
 # Input:
@@ -280,7 +278,6 @@ covDetMCD(as.data.frame(log(Eredivisie28)),alpha=0.75)
 # y ........ response variable
 # alpha .... proportion of observations to be used for the subset size in the 
 #            MCD estimator
-# anything else you need
 
 # Output
 # A list with the following components:
@@ -290,8 +287,34 @@ covDetMCD(as.data.frame(log(Eredivisie28)),alpha=0.75)
 # residuals ....... residuals for all observations in the data
 # MCD ............. R object for the deterministic MCD (entire output from
 #                   function covDetMCD())
-# any other output you want to return
 
-lmDetMCD <- function(x, y, alpha, ...) {
-  # *enter your code here*
+lmDetMCD <- function(x, y, alpha) {
+  MCD <- covDetMCD(cbind(y,x),alpha)
+  S <- MCD$cov
+  C <- MCD$center
+  p <- ncol(cbind(y,x))
+  #regression coefficients and intercept
+  b <- solve(S[2:p,2:p])%*%S[1,2:p]
+  a <- C[1] - crossprod(C[-1], b)
+  coefficients <- c(a,b)
+  
+  fitted.values <- rep(a,length(x))+x%*%b 
+  residuals <- y-fitted.values
+  results <- list("coefficients"=coefficients, "fitted.values"=fitted.values, "residuals"=residuals, "MCD"=MCD)
+  return(results)
 }
+
+#plot regression lines based on different estimators
+data <- as.data.frame(log(Eredivisie28))
+plugin <- lmDetMCD(data[,1],data[,2],alpha=0.75)
+lts <- ltsReg(data[,2]~data[,1])
+ols <- lm(data[,2]~data[,1])
+predicted_data_plugin <- data.frame(Age=data[,1],pred_MV = plugin$fitted.values)
+predicted_data_lts <- data.frame(Age=data[,1],pred_MV=lts$fitted.values)
+predicted_data_ols <- data.frame(Age=data[,1],pred_MV = ols$fitted.values)
+ggplot(data, aes(x=Age, y=MarketValue)) +
+  geom_point() +
+  geom_line(color='red',data = predicted_data_plugin,aes(x=Age,y=pred_MV)) +
+  geom_line(color='green',data = predicted_data_ols,aes(x=Age,y=pred_MV)) +
+  geom_line(color='blue',data = predicted_data_lts,aes(x=Age,y=pred_MV))
+
