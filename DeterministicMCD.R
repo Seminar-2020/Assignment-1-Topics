@@ -14,6 +14,7 @@
 ##            to the function definitions as needed.
 
 library(robustbase)
+data <- data.frame(MarketValue = log(Eredivisie28)[,2],Age = Eredivisie28[,1])
 
 #euclidean distance function 
 euc.dist<- function(x1) sqrt(sum((x1) ^ 2))
@@ -98,6 +99,79 @@ rawCovOGK <- function(z) {
 # n.outliers ... number of outliers according to the reweighted estimator
 
 covDetMCD <- function(x, alpha) {
+  # standardizes a dataframe by subtracting the median and dividing by the MAD (instead of Qn proposed in paper)
+  # returns the standardized dataframe
+  rob_standard <- function(x) {
+    Var <- apply(x, 2, mad)
+    medians <- apply(x,2,median)
+    A <- diag(Var^(-1))
+    ones <- matrix(1, nrow=n, ncol=1)
+    v <- medians/Var
+    z <- as.matrix(x)%*%A-ones%*%v
+    return(z)
+  }
+  # transform S into initial scatter estimate with accurate eigenvalues
+  # obtain an initial estimate for the center
+  # returns a list with covariance and center estimate for z
+  proper_ev <- function(z,S) {
+    E <- eigen(S)$vectors
+    B <- as.matrix(z)%*%E
+    V <- apply(B,2,mad)^2
+    L <- diag(V)
+    Sigma_hat <- E%*%L%*%t(E)
+    mu_hat <- chol(Sigma_hat)%*%apply(as.matrix(z)%*%solve(chol(Sigma_hat)), 2, median)
+    result <- list("center"= mu_hat, "scatter" = Sigma_hat)
+    return(result)
+  }
+  #find the optimal subset of h observations given the initial center and scatter estimates
+  #return the estimated center, scatter and which h variables are selected in the subset 
+  algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
+    #compute statistical distances and select h0 smallest
+    z$distances <- mahalanobis(as.matrix(z), mu_hat, Sigma_hat)^(1/2)
+    h0 <- ceiling(nrow(z)/2)
+    h <- h.alpha.n(alpha,n,p) 
+    z$rank <- rank(z$distances, ties.method="random") #method set to "random" to avoid similar ranks
+    initial_subset <- z[z$rank<=h0,1:p] 
+    #compute new center and scatter estimate based on the concentrated subset
+    T_H0 <- colMeans(initial_subset)
+    S_H0 <- cov(initial_subset)
+    #compute distances based on this subset and iterate this procedure until convergence
+    for (i in 1:1000) {
+      z$distances <- mahalanobis(as.matrix(z[,1:p]), T_H0, S_H0)^(1/2)
+      z$rank <- rank(z$distances, ties.method="random")
+      z$select <- ifelse(z$rank<=h, 1, 0) #pick h smallest, i.e. set "select' of h smallest ranks to 1
+      T_H <- colMeans(z[z$select==1,1:p])
+      S_H <- cov(z[z$select==1,1:p])
+      if (det(S_H)==det(S_H0)) { # stopping criterion
+        break
+      } 
+      #if not yet converged: update estimates and iterate again
+      T_H0 <- T_H
+      S_H0 <- S_H
+    }
+    result <- list("raw.center"=T_H0, "raw.cov"=S_H0,"selection"=z$select)
+    return(result)
+  }
+  #identify which of the 6 estimators has the lowest determinant
+  #return a list with the index of the chosen initial estimator and the corresponding determinant value
+  best_det <- function(benchmark){
+    best_start <- 1
+    for (i in 2:6) {
+      if (det(results_raw_cov[[i]])<benchmark) {
+        best_start <- i
+        benchmark <- det(results_raw_cov[[i]])
+      }
+    }
+    result <- list(best_start, benchmark)
+    return(result)
+  }
+  #compute the fisher correction factors based on the fraction of observations used and the number of variables
+  fisher <- function(frac, p) {
+    chisq <- qchisq(frac, p)
+    c_alpha <- frac/pgamma(chisq/2, p/2+1,1)
+    return(c_alpha)
+  }
+  
   n <- nrow(x)
   p <- ncol(x)
   h <- h.alpha.n(alpha,n,p)
@@ -171,79 +245,6 @@ covDetMCD <- function(x, alpha) {
                   "raw.n.outliers"=obs_out_raw,
                   "n.outliers"=obs_out_reweighted)
   return(results)
-  
-  # standardizes a dataframe by subtracting the median and dividing by the MAD (instead of Qn proposed in paper)
-  # returns the standardized dataframe
-  rob_standard <- function(x) {
-    Var <- apply(x, 2, mad)
-    medians <- apply(x,2,median)
-    A <- diag(Var^(-1))
-    ones <- matrix(1, nrow=n, ncol=1)
-    v <- medians/Var
-    z <- as.matrix(x)%*%A-ones%*%v
-    return(z)
-  }
-  # transform S into initial scatter estimate with accurate eigenvalues
-  # obtain an initial estimate for the center
-  # returns a list with covariance and center estimate for z
-  proper_ev <- function(z,S) {
-    E <- eigen(S)$vectors
-    B <- as.matrix(z)%*%E
-    V <- apply(B,2,mad)^2
-    L <- diag(V)
-    Sigma_hat <- E%*%L%*%t(E)
-    mu_hat <- chol(Sigma_hat)%*%apply(as.matrix(z)%*%solve(chol(Sigma_hat)), 2, median)
-    result <- list("center"= mu_hat, "scatter" = Sigma_hat)
-    return(result)
-  }
-  #find the optimal subset of h observations given the initial center and scatter estimates
-  #return the estimated center, scatter and which h variables are selected in the subset 
-  algorithm <- function(z, mu_hat, Sigma_hat, alpha) {
-    #compute statistical distances and select h0 smallest
-    z$distances <- mahalanobis(as.matrix(z), mu_hat, Sigma_hat)^(1/2)
-    h0 <- ceiling(nrow(z)/2)
-    h <- h.alpha.n(alpha,n,p) 
-    z$rank <- rank(z$distances, ties.method="random") #method set to "random" to avoid similar ranks
-    initial_subset <- z[z$rank<=h0,1:p] 
-    #compute new center and scatter estimate based on the concentrated subset
-    T_H0 <- colMeans(initial_subset)
-    S_H0 <- cov(initial_subset)
-    #compute distances based on this subset and iterate this procedure until convergence
-    for (i in 1:1000) {
-      z$distances <- mahalanobis(as.matrix(z[,1:p]), T_H0, S_H0)^(1/2)
-      z$rank <- rank(z$distances, ties.method="random")
-      z$select <- ifelse(z$rank<=h, 1, 0) #pick h smallest, i.e. set "select' of h smallest ranks to 1
-      T_H <- colMeans(z[z$select==1,1:p])
-      S_H <- cov(z[z$select==1,1:p])
-      if (det(S_H)==det(S_H0)) { # stopping criterion
-        break
-      } 
-      #if not yet converged: update estimates and iterate again
-      T_H0 <- T_H
-      S_H0 <- S_H
-    }
-    result <- list("raw.center"=T_H0, "raw.cov"=S_H0,"selection"=z$select)
-    return(result)
-  }
-  #identify which of the 6 estimators has the lowest determinant
-  #return a list with the index of the chosen initial estimator and the corresponding determinant value
-  best_det <- function(benchmark){
-    best_start <- 1
-    for (i in 2:6) {
-      if (det(results_raw_cov[[i]])<benchmark) {
-        best_start <- i
-        benchmark <- det(results_raw_cov[[i]])
-      }
-    }
-    result <- list(best_start, benchmark)
-    return(result)
-  }
-  #compute the fisher correction factors based on the fraction of observations used and the number of variables
-  fisher <- function(frac, p) {
-    chisq <- qchisq(frac, p)
-    c_alpha <- frac/pgamma(chisq/2, p/2+1,1)
-    return(c_alpha)
-  }
 }
 
 #this function uses the output of covDetMCD to construct a plot of the data and confidence ellipses
@@ -268,7 +269,7 @@ plot_ellipses <- function(data,mcd_obj) {
     geom_point() +
     geom_polygon(color="red", fill="red", alpha=0.3, data=ellipse_mcd_raw) +
     geom_polygon(color="yellow", fill="yellow", alpha=0.3, data=ellipse_mcd)
-}
+}  
 plot_ellipses(as.data.frame(log(Eredivisie28)), covDetMCD(as.data.frame(log(Eredivisie28)),alpha=0.75))
 
 ## Function for regression based on the deterministic MCD
@@ -298,7 +299,7 @@ lmDetMCD <- function(x, y, alpha) {
   a <- C[1] - crossprod(C[-1], b)
   coefficients <- c(a,b)
   
-  fitted.values <- rep(a,length(x))+x%*%b 
+  fitted.values <- rep(a,length(x))+as.matrix(x)%*%b 
   residuals <- y-fitted.values
   results <- list("coefficients"=coefficients, "fitted.values"=fitted.values, "residuals"=residuals, "MCD"=MCD)
   return(results)
@@ -309,12 +310,12 @@ data <- as.data.frame(log(Eredivisie28))
 plugin <- lmDetMCD(data[,1],data[,2],alpha=0.75)
 lts <- ltsReg(data[,2]~data[,1])
 ols <- lm(data[,2]~data[,1])
-predicted_data_plugin <- data.frame(Age=data[,1],pred_MV = plugin$fitted.values)
-predicted_data_lts <- data.frame(Age=data[,1],pred_MV=lts$fitted.values)
-predicted_data_ols <- data.frame(Age=data[,1],pred_MV = ols$fitted.values)
+predicted_data_plugin_E <- data.frame(Age=data[,1],pred_MV = plugin$fitted.values)
+predicted_data_lts_E <- data.frame(Age=data[,1],pred_MV=lts$fitted.values)
+predicted_data_ols_E <- data.frame(Age=data[,1],pred_MV = ols$fitted.values)
 ggplot(data, aes(x=Age, y=MarketValue)) +
   geom_point() +
-  geom_line(color='red',data = predicted_data_plugin,aes(x=Age,y=pred_MV)) +
-  geom_line(color='green',data = predicted_data_ols,aes(x=Age,y=pred_MV)) +
-  geom_line(color='blue',data = predicted_data_lts,aes(x=Age,y=pred_MV))
+  geom_line(color='red',data = predicted_data_plugin_E,aes(x=Age,y=pred_MV)) +
+  geom_line(color='green',data = predicted_data_ols_E,aes(x=Age,y=pred_MV)) +
+  geom_line(color='blue',data = predicted_data_lts_E,aes(x=Age,y=pred_MV))
 
