@@ -299,7 +299,7 @@ lmDetMCD <- function(x, y, alpha) {
   a <- C[1] - crossprod(C[-1], b)
   coefficients <- c(a,b)
   
-  fitted.values <- rep(a,length(x))+as.matrix(x)%*%b 
+  fitted.values <- rep(a,nrow(x))+as.matrix(x)%*%b 
   residuals <- y-fitted.values
   results <- list("coefficients"=coefficients, "fitted.values"=fitted.values, "residuals"=residuals, "MCD"=MCD)
   return(results)
