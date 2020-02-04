@@ -58,7 +58,7 @@ simulateOutliers <- function (n, epsilon, R, perc, p) {
     X_oos <- cbind(rep(1,ceiling(n*perc)),X_oos)
     Y_oos <- X_oos%*%coefficients+rnorm(ceiling(n*perc), mean = 0, sd = 1)
     # change some data points into good leverage points
-    X_GLP <- ifelse(pout < eps, mvrnorm(n, mean = rep(40,p), sigma = diag(p)), X)
+    X_GLP <- ifelse(pout < eps, rmvnorm(n, mean = rep(40,p), sigma = diag(p)), X)
     Y_GLP <- intercept + X_GLP%*%b + rnorm(n, mean = 0, sd = 1)
     df <- data.frame(Y_GLP,X_GLP)
     # compute estimators
@@ -69,7 +69,7 @@ simulateOutliers <- function (n, epsilon, R, perc, p) {
     plugin <- lmDetMCD(X_GLP,Y_GLP,alpha=0.5)
     beta_plugin <- plugin$coefficients
     # evaluate estimates using RMSE
-    beta_true <- rbind(intercept, b)
+    beta_true <- coefficients
     RMSE_lm <- RMSE(beta_true, beta_ols)
     RMSE_lts <- RMSE(beta_true, beta_lts)
     RMSE_plugin <- RMSE(beta_true, beta_plugin)
@@ -92,8 +92,8 @@ simulateOutliers <- function (n, epsilon, R, perc, p) {
     X_oos <- cbind(rep(1,ceiling(n*perc)),X_oos)
     Y_oos <- X_oos%*%coefficients+rnorm(ceiling(n*perc), mean = 0, sd = 1)
     # change some points into bad leverage points
-    X_BLP <- ifelse(pout < eps, mvrnorm(n, mean = rep(-40,p), sigma = diag(p)), X)
-    Y_BLP <- intercept + X_BLP%*%-b + rnorm(n, mean = 40, sd = 1)
+    X_BLP <- ifelse(pout < eps, rmvnorm(n, mean = rep(0,p), sigma = diag(p)), X)
+    Y_BLP <- ifelse(poutvalue < eps, intercept + X_BLP%*%-b + rnorm(n, mean = 0, sd = 1),Y)
     df <- data.frame(Y_BLP,X_BLP)
     # compute estimators
     lm <- lm(Y_BLP ~ ., df)
