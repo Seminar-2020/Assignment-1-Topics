@@ -15,6 +15,12 @@ simulateOutliers <- function (n, epsilon, R) {
     X <- rmvnorm(n, sigma = Sigma)
     Y <- intercept + X%*%b + rnorm(n, mean = 0, sd = 1)
     df <- data.frame(Y = Y, X1 = X[,1], X2 = X[,2])
+    # generate 10% extra observations and cutoff to use oos
+    X <- rmvnorm(ceiling(1.1*n), sigma = Sigma)
+    Y <- intercept + X%*%b + rnorm(ceiling(1.1*n), mean = 0, sd = 1)
+    full <- data.frame(Y = Y, X1 = X[,1], X2 = X[,2])
+    df <- full[1:n,]
+    df_oos <- full[n+1:nrow(full),]  
     # compute estimators
     lm <- lm(df[,1] ~ df[,2] + df[,3], df)
     beta_ols <- lm$coefficients
@@ -22,12 +28,19 @@ simulateOutliers <- function (n, epsilon, R) {
     beta_lts <- lts$coefficients
     plugin <- lmDetMCD(X,Y,alpha=0.5)
     beta_plugin <- plugin$coefficients
-    # evaluate using RMSE
+    # evaluate coefficients using RMSE
     beta_true <- rbind(intercept, b)
     RMSE_lm <- RMSE(beta_true, beta_ols)
     RMSE_lts <- RMSE(beta_true, beta_lts)
     RMSE_plugin <- RMSE(beta_true, beta_plugin)
-    
+    # evaluate prediction performance using RMSE
+    y_true <- df_oos[,1]
+    lm_pred <-     
+    lts_pred <-
+    plugin_pred <-
+    RMSE_lm_oos <- RMSE(y_true, lm_pred)
+    RMSE_lts_oos <- RMSE(y_true, lts_pred)
+    RMSE_plugin_oos <- RMSE(y_true, plugin_pred)
     c(beta_ols,beta_lts,beta_plugin,RMSE_lm,RMSE_lts,RMSE_plugin)
   })
   
