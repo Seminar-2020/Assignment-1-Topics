@@ -9,17 +9,18 @@ library(mvtnorm)
 simulateOutliers <- function (n, epsilon, R, perc, p) {
   # control parameters
   set.seed(10)
-  eps <- rep(epsilon, n)
+  eps <- matrix(epsilon, ncol = p, nrow = n)
   intercept <- 1
   b <- rep(1,p)
   coefficients <- c(intercept,b)
   Sigma <- diag(p)
   # generate probability of being outlying for each observation
-  pout <- runif(n)
+  poutvalue <- runif(n)
+  pout <- matrix(poutvalue, ncol = p, nrow = n)
   
   sampleClean <- replicate(R, {
-    # generate clean data
-    X <- rmvnorm(n,  mean = rep(20,nrow(Sigma)),sigma = Sigma)
+    # generate multivariate normal data
+    X <- rmvnorm(n,  mean = rep(20,nrow(Sigma)), sigma = Sigma)
     Y <- intercept + X%*%b + rnorm(n, mean = 0, sd = 1)
     df <- data.frame(Y,X)
     # generate 10% extra observations to use oos
@@ -49,30 +50,26 @@ simulateOutliers <- function (n, epsilon, R, perc, p) {
   })
   
   sampleGLP <- replicate(R, {
-    # generate good leverage points
-    X <- rmvnorm(n,  mean = rep(20,nrow(Sigma)),sigma = Sigma)
+    # generate multivariate normal data
+    X <-  rmvnorm(n,  mean = rep(20,nrow(Sigma)), sigma = Sigma)
+    Y <- intercept + X%*%b + rnorm(n, mean = 0, sd = 1)
     # generate 10% extra (regular) observations to use oos
     X_oos <- rmvnorm(ceiling(n*perc), mean = rep(20,nrow(Sigma)),sigma = Sigma)
     X_oos <- cbind(rep(1,ceiling(n*perc)),X_oos)
     Y_oos <- X_oos%*%coefficients+rnorm(ceiling(n*perc), mean = 0, sd = 1)
-    # change some points into good leverage points
-    index <- pout < eps
-    
-    for (i in 1:sum(index)) {
-      X[] <- rnorm(p, mean = 40, sd = 1)
-    }
-    #X[index,] <- rnorm(p, mean = 40, sd = 1) #gaat fout want vervangt allemaal met dezelfde waarde!!! 
-    Y <- intercept + X%*%b + rnorm(n, mean = 0, sd = 1)
-    df <- data.frame(Y,X)
+    # change some data points into good leverage points
+    X_GLP <- ifelse(pout < eps, mvrnorm(n, mean = rep(40,p), sigma = diag(p)), X)
+    Y_GLP <- intercept + X_GLP%*%b + rnorm(n, mean = 0, sd = 1)
+    df <- data.frame(Y_GLP,X_GLP)
     # compute estimators
-    lm <- lm(Y ~.,df)
+    lm <- lm(Y_GLP ~ ., df)
     beta_ols <- lm$coefficients
-    lts <- ltsReg(X,Y)
+    lts <- ltsReg(X_GLP,Y_GLP)
     beta_lts <- lts$coefficients
-    plugin <- lmDetMCD(X,Y,alpha=0.5)
+    plugin <- lmDetMCD(X_GLP,Y_GLP,alpha=0.5)
     beta_plugin <- plugin$coefficients
-    # evaluate using RMSE
-    beta_true <- coefficients
+    # evaluate estimates using RMSE
+    beta_true <- rbind(intercept, b)
     RMSE_lm <- RMSE(beta_true, beta_ols)
     RMSE_lts <- RMSE(beta_true, beta_lts)
     RMSE_plugin <- RMSE(beta_true, beta_plugin)
@@ -87,22 +84,23 @@ simulateOutliers <- function (n, epsilon, R, perc, p) {
   })
   
   sampleBLP <- replicate(R, {
-    # generate bad leverage points
-    # X <- rmvnorm(n, sigma = Sigma)
-    # Y <- intercept + X%*%b + rnorm(n, mean = 0, sd = 1)
+    # generate multivariate normal data
     X <- rmvnorm(n,  mean = rep(20,nrow(Sigma)),sigma = Sigma)
     Y <- intercept + X%*%b + rnorm(n, mean = 0, sd = 1)
+    # generate 10% extra observations to use oos
+    X_oos <- rmvnorm(ceiling(n*perc), mean = rep(20,nrow(Sigma)),sigma = Sigma)
+    X_oos <- cbind(rep(1,ceiling(n*perc)),X_oos)
+    Y_oos <- X_oos%*%coefficients+rnorm(ceiling(n*perc), mean = 0, sd = 1)
     # change some points into bad leverage points
-    index <- pout < eps
-    X[index,] <- rnorm(p, mean = 40, sd = 1) 
-    Y[index,] <- intercept + X[index,]%*%-b + rnorm(n, mean = 40, sd = 1)
-    df <- data.frame(Y,X)
+    X_BLP <- ifelse(pout < eps, mvrnorm(n, mean = rep(-40,p), sigma = diag(p)), X)
+    Y_BLP <- intercept + X_BLP%*%-b + rnorm(n, mean = 40, sd = 1)
+    df <- data.frame(Y_BLP,X_BLP)
     # compute estimators
-    lm <- lm(y ~ x1 + x2)
+    lm <- lm(Y_BLP ~ ., df)
     beta_ols <- lm$coefficients
-    lts <- ltsReg(X_new,y)
+    lts <- ltsReg(X_BLP,Y_BLP)
     beta_lts <- lts$coefficients
-    plugin <- lmDetMCD(X_new,y,alpha=0.5)
+    plugin <- lmDetMCD(X_BLP,Y_BLP,alpha=0.5)
     beta_plugin <- plugin$coefficients
     # evaluate using RMSE
     beta_true <- rbind(intercept, b)
@@ -114,16 +112,18 @@ simulateOutliers <- function (n, epsilon, R, perc, p) {
   }) 
   
   sampleVO <- replicate(R, {
-    # generate vertical outliers
+    # generate multivariate normal data
     X <- rmvnorm(n, sigma = Sigma)
     Y <- intercept + X%*%b + rnorm(n, mean = 0, sd = 1)
-    y <- ifelse(pout < eps, intercept + X%*%b + rnorm(n, mean = 20, sd = 1), Y)
+    # change some points into vertical outliers
+    Y_VO <- ifelse(pout < eps, intercept + X%*%b + rnorm(n, mean = 40, sd = 1), Y)
+    df <- data.frame(Y_VO,X)
     # compute estimators
-    lm <- lm(y ~ X[,1] + X[,2])
+    lm <- lm(Y_VO ~ ., df)
     beta_ols <- lm$coefficients
-    lts <- ltsReg(X,y)
+    lts <- ltsReg(X,Y_VO)
     beta_lts <- lts$coefficients
-    plugin <- lmDetMCD(X,y,alpha=0.5)
+    plugin <- lmDetMCD(X,Y_VO,alpha=0.5)
     beta_plugin <- plugin$coefficients
     # evaluate using RMSE
     beta_true <- rbind(intercept, b)
@@ -136,25 +136,23 @@ simulateOutliers <- function (n, epsilon, R, perc, p) {
   
   # generate sample contaminated with good leverage points, bad leverage points & vertical outliers
   sampleContam <- replicate(R,{
+    # generate multivariate normal data
     X <- rmvnorm(n, sigma = Sigma)
     Y <- intercept + X%*%b + rnorm(n, mean = 0, sd = 1)
     eps <- eps/3
-    # add good leverage points
-    x1_GLP <- ifelse(pout < eps, rnorm(n, mean = 20, sd = 1), X[,1])
-    x2_GLP <- ifelse(pout < eps, rnorm(n, mean = 20, sd = 1), X[,2])
-    X_GLP <- cbind(x1_GLP, x2_GLP)
+    # replace some point by good leverage points
+    X_GLP <- ifelse(pout < eps, mvrnorm(n, mean = rep(40,p), sigma = diag(p)), X)
     Y_GLP <- intercept + X_GLP%*%b + rnorm(n, mean = 0, sd = 1)
-    # add bad leverage points
-    x1_BLP <- ifelse(eps < pout & pout < 2*eps, rnorm(n, mean = -20, sd = 1), x1_GLP)
-    x2_BLP <- ifelse(eps < pout & pout < 2*eps, rnorm(n, mean = -20, sd = 1), x2_GLP) 
-    X_BLP <- cbind(x1_BLP, x2_BLP)
-    Y_BLP <- ifelse(eps < pout & pout < 2*eps, intercept + X_BLP%*%-b + rnorm(n, mean = 20, sd = 1), Y_GLP)
-    # add vertical outliers
+    # replace some points by bad leverage points
+    X_BLP <- ifelse(eps < pout & pout < 2*eps, mvrnorm(n, mean = rep(-40,p), sigma = diag(p)), X_GLP)
+    Y_BLP <- ifelse(eps < pout & pout < 2*eps, intercept + X_BLP%*%-b + rnorm(n, mean = 40, sd = 1), Y_GLP)
+    # replace some points by vertical outliers
     Y_VO <- ifelse(2*eps < pout & pout < 3*eps, intercept + X_BLP%*%b + rnorm(n, mean = 20, sd = 1), Y_BLP)
-    # compute estimators
     Y <- Y_VO
     X <- X_BLP
-    lm <- lm(Y ~ X[,1] + X[,2])
+    df <- data.frame(Y,X)
+    # compute estimators
+    lm <- lm(Y ~ ., df)
     beta_ols <- lm$coefficients
     lts <- ltsReg(X,Y)
     beta_lts <- lts$coefficients
