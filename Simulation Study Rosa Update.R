@@ -1,81 +1,102 @@
 library(mvtnorm)
 # Contaminate observations with probability epsilon
-simulateOutliers <- function (n, epsilon, R) {
+# n         number of observations in-sample
+# epsilon   contamination level
+# R         number of repetitions
+# perc      percentage of in-sample size to generate for out-of-sample evaluations
+# p         numer of predictor variables
+
+simulateOutliers <- function (n, epsilon, R, perc, p) {
   # control parameters
   set.seed(10)
   eps <- rep(epsilon, n)
   intercept <- 1
-  b <- matrix(c(1, 1))
-  Sigma <- matrix(c(1, 0, 0, 1), nrow = 2, ncol = 2)
+  b <- rep(1,p)
+  coefficients <- c(intercept,b)
+  Sigma <- diag(p)
   # generate probability of being outlying for each observation
   pout <- runif(n)
   
   sampleClean <- replicate(R, {
     # generate clean data
-    X <- rmvnorm(n, sigma = Sigma)
+    X <- rmvnorm(n,  mean = rep(20,nrow(Sigma)),sigma = Sigma)
     Y <- intercept + X%*%b + rnorm(n, mean = 0, sd = 1)
-    df <- data.frame(Y = Y, X1 = X[,1], X2 = X[,2])
-    # generate 10% extra observations and cutoff to use oos
-    X <- rmvnorm(ceiling(1.1*n), sigma = Sigma)
-    Y <- intercept + X%*%b + rnorm(ceiling(1.1*n), mean = 0, sd = 1)
-    full <- data.frame(Y = Y, X1 = X[,1], X2 = X[,2])
-    df <- full[1:n,]
-    df_oos <- full[n+1:nrow(full),]  
+    df <- data.frame(Y,X)
+    # generate 10% extra observations to use oos
+    X_oos <- rmvnorm(ceiling(n*perc), mean = rep(20,nrow(Sigma)),sigma = Sigma)
+    X_oos <- cbind(rep(1,ceiling(n*perc)),X_oos)
+    Y_oos <- X_oos%*%coefficients+rnorm(ceiling(n*perc), mean = 0, sd = 1)
     # compute estimators
-    lm <- lm(df[,1] ~ df[,2] + df[,3], df)
+    lm <- lm(Y ~ ., df)
     beta_ols <- lm$coefficients
     lts <- ltsReg(X,Y)
     beta_lts <- lts$coefficients
     plugin <- lmDetMCD(X,Y,alpha=0.5)
     beta_plugin <- plugin$coefficients
     # evaluate coefficients using RMSE
-    beta_true <- rbind(intercept, b)
+    beta_true <- coefficients
     RMSE_lm <- RMSE(beta_true, beta_ols)
     RMSE_lts <- RMSE(beta_true, beta_lts)
     RMSE_plugin <- RMSE(beta_true, beta_plugin)
     # evaluate prediction performance using RMSE
-    y_true <- df_oos[,1]
-    lm_pred <-     
-    lts_pred <-
-    plugin_pred <-
-    RMSE_lm_oos <- RMSE(y_true, lm_pred)
-    RMSE_lts_oos <- RMSE(y_true, lts_pred)
-    RMSE_plugin_oos <- RMSE(y_true, plugin_pred)
-    c(beta_ols,beta_lts,beta_plugin,RMSE_lm,RMSE_lts,RMSE_plugin)
+    lm_pred <- X_oos%*%beta_ols    
+    lts_pred <- X_oos%*%beta_lts
+    plugin_pred <- X_oos%*%beta_plugin
+    RMSE_lm_oos <- RMSE(Y_oos, lm_pred)
+    RMSE_lts_oos <- RMSE(Y_oos, lts_pred)
+    RMSE_plugin_oos <- RMSE(Y_oos, plugin_pred)
+    c(beta_ols,beta_lts,beta_plugin,RMSE_lm,RMSE_lts,RMSE_plugin,RMSE_lm_oos,RMSE_lts_oos,RMSE_plugin_oos)
   })
   
   sampleGLP <- replicate(R, {
     # generate good leverage points
-    X <- rmvnorm(n, sigma = Sigma)
+    X <- rmvnorm(n,  mean = rep(20,nrow(Sigma)),sigma = Sigma)
+    # generate 10% extra (regular) observations to use oos
+    X_oos <- rmvnorm(ceiling(n*perc), mean = rep(20,nrow(Sigma)),sigma = Sigma)
+    X_oos <- cbind(rep(1,ceiling(n*perc)),X_oos)
+    Y_oos <- X_oos%*%coefficients+rnorm(ceiling(n*perc), mean = 0, sd = 1)
+    # change some points into good leverage points
+    index <- pout < eps
+    
+    for (i in 1:sum(index)) {
+      X[] <- rnorm(p, mean = 40, sd = 1)
+    }
+    #X[index,] <- rnorm(p, mean = 40, sd = 1) #gaat fout want vervangt allemaal met dezelfde waarde!!! 
     Y <- intercept + X%*%b + rnorm(n, mean = 0, sd = 1)
-    x1 <- ifelse(pout < eps, rnorm(n, mean = 20, sd = 1), X[,1])
-    x2 <- ifelse(pout < eps, rnorm(n, mean = 20, sd = 1), X[,2])
-    X_new <- cbind(x1, x2)
-    y <- intercept + X_new%*%b + rnorm(n, mean = 0, sd = 1)
+    df <- data.frame(Y,X)
     # compute estimators
-    lm <- lm(y ~ x1 + x2)
+    lm <- lm(Y ~.,df)
     beta_ols <- lm$coefficients
-    lts <- ltsReg(X_new,y)
+    lts <- ltsReg(X,Y)
     beta_lts <- lts$coefficients
-    plugin <- lmDetMCD(X_new,y,alpha=0.5)
+    plugin <- lmDetMCD(X,Y,alpha=0.5)
     beta_plugin <- plugin$coefficients
     # evaluate using RMSE
-    beta_true <- rbind(intercept, b)
+    beta_true <- coefficients
     RMSE_lm <- RMSE(beta_true, beta_ols)
     RMSE_lts <- RMSE(beta_true, beta_lts)
     RMSE_plugin <- RMSE(beta_true, beta_plugin)
-    
-    c(beta_ols,beta_lts,beta_plugin,RMSE_lm,RMSE_lts,RMSE_plugin)
+    # evaluate prediction performance using RMSE
+    lm_pred <- X_oos%*%beta_ols    
+    lts_pred <- X_oos%*%beta_lts
+    plugin_pred <- X_oos%*%beta_plugin
+    RMSE_lm_oos <- RMSE(Y_oos, lm_pred)
+    RMSE_lts_oos <- RMSE(Y_oos, lts_pred)
+    RMSE_plugin_oos <- RMSE(Y_oos, plugin_pred)
+    c(beta_ols,beta_lts,beta_plugin,RMSE_lm,RMSE_lts,RMSE_plugin,RMSE_lm_oos,RMSE_lts_oos,RMSE_plugin_oos)
   })
   
   sampleBLP <- replicate(R, {
     # generate bad leverage points
-    X <- rmvnorm(n, sigma = Sigma)
+    # X <- rmvnorm(n, sigma = Sigma)
+    # Y <- intercept + X%*%b + rnorm(n, mean = 0, sd = 1)
+    X <- rmvnorm(n,  mean = rep(20,nrow(Sigma)),sigma = Sigma)
     Y <- intercept + X%*%b + rnorm(n, mean = 0, sd = 1)
-    x1 <- ifelse(pout < eps, rnorm(n, mean = -20, sd = 1), X[,1])
-    x2 <- ifelse(pout < eps, rnorm(n, mean = -20, sd = 1), X[,2]) 
-    X_new <- cbind(x1, x2)
-    y <- ifelse(pout < eps, intercept + X_new%*%-b + rnorm(n, mean = 20, sd = 1), Y)
+    # change some points into bad leverage points
+    index <- pout < eps
+    X[index,] <- rnorm(p, mean = 40, sd = 1) 
+    Y[index,] <- intercept + X[index,]%*%-b + rnorm(n, mean = 40, sd = 1)
+    df <- data.frame(Y,X)
     # compute estimators
     lm <- lm(y ~ x1 + x2)
     beta_ols <- lm$coefficients
