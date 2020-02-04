@@ -180,7 +180,7 @@ simulateOutliers <- function (n, epsilon, R, perc, p) {
 }
 
 RMSE <- function (true, estimated) {
-  MSE <- mean(se(true, estimated))
+  MSE <- mean((true-estimated)^2)
   RMSE <- sqrt(MSE)
   return (RMSE)
 }
