@@ -59,7 +59,7 @@ simulateOutliers <- function (n, epsilon, R, perc, p) {
     X_oos <- cbind(rep(1,ceiling(n*perc)),X_oos)
     Y_oos <- X_oos%*%coefficients+rnorm(ceiling(n*perc), mean = 0, sd = 1)
     # change some data points into good leverage points
-    X_GLP <- ifelse(pout < eps, rmvnorm(n, mean = rep(40,p), sigma = diag(p)), X)
+    X_GLP <- ifelse(pout < eps, rmvnorm(n, mean = rep(30,p), sigma = diag(p)), X)
     Y_GLP <- intercept + X_GLP%*%b + rnorm(n, mean = 0, sd = 1)
     df <- data.frame(Y_GLP,X_GLP)
     # compute estimators
@@ -93,7 +93,7 @@ simulateOutliers <- function (n, epsilon, R, perc, p) {
     X_oos <- cbind(rep(1,ceiling(n*perc)),X_oos)
     Y_oos <- X_oos%*%coefficients+rnorm(ceiling(n*perc), mean = 0, sd = 1)
     # change some points into bad leverage points
-    X_BLP <- ifelse(pout < eps, rmvnorm(n, mean = rep(0,p), sigma = diag(p)), X)
+    X_BLP <- ifelse(pout < eps, rmvnorm(n, mean = rep(30,p), sigma = diag(p)), X)
     Y_BLP <- ifelse(poutvalue < eps_vector, intercept + X_BLP%*%-b + rnorm(n, mean = 0, sd = 1),Y)
     df <- data.frame(Y_BLP,X_BLP)
     # compute estimators
@@ -127,7 +127,7 @@ simulateOutliers <- function (n, epsilon, R, perc, p) {
     X_oos <- cbind(rep(1,ceiling(n*perc)),X_oos)
     Y_oos <- X_oos%*%coefficients+rnorm(ceiling(n*perc), mean = 0, sd = 1)
     # change some points into vertical outliers
-    Y_VO <- ifelse(poutvalue < eps_vector, intercept + X%*%b + rnorm(n, mean = 40, sd = 1), Y)
+    Y_VO <- ifelse(poutvalue < eps_vector, intercept + X%*%b + rnorm(n, mean = 10, sd = 1), Y)
     df <- data.frame(Y_VO,X)
     # compute estimators
     lm <- lm(Y_VO ~ ., df)
