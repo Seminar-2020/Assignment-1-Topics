@@ -3,7 +3,7 @@ library(mvtnorm)
 # n         number of observations in-sample
 # epsilon   contamination level
 # R         number of repetitions
-# perc      percentage of in-sample size to generate for out-of-sample evaluations
+# perc      fraction of in-sample size to generate for out-of-sample evaluations
 # p         numer of predictor variables
 
 simulateOutliers <- function (n, epsilon, R, perc, p) {
