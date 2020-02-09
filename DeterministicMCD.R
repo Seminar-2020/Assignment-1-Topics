@@ -3,26 +3,12 @@
 # Group 14: Tasia Bueno de Mesquita (424406), Rosa ten Kate (413775), Frederique Ram (431623), Tiemen de Jong (430839)
 # --------------------------------------------------------------------
 
-## Use this code skeleton to implement the deterministic MCD and the plug-in
-## robust regression estimator.  Please submit your implementation together
-## with your report.
-
-## IMPORTANT: Please do not change any function names and make sure that you
-##            use the correct input and output as specified for each function.
-##            This will simplify grading because each group's code will be
-##            similarly structured.  However, feel free to add other arguments
-##            to the function definitions as needed.
-
 library(robustbase)
 data <- data.frame(MarketValue = log(Eredivisie28)[,2],Age = Eredivisie28[,1])
-
-#euclidean distance function 
-euc.dist<- function(x1) sqrt(sum((x1) ^ 2))
 
 #### Functions for initial estimators ####
 # Input: the standardized data matrix z
 # Output: the estimated covariance or correlation matrix
-# Please do not use any other input or output for the initial estimators
 
 # correlation matrix based on the hyperbolic tangent 
 corHT <- function(z) {
@@ -47,11 +33,12 @@ corNSR <- function(z) {
   #calculate the correlation 
   s.3 = cor(T, method = "pearson")
   return(s.3)
-}
+} 
 
 # modified spatial sign covariance matrix s.4
 covMSS <- function(z) {
   z <- as.matrix(z)
+  euc.dist<- function(x1) sqrt(sum((x1) ^ 2)) #euclidean distance function 
   d  <-  apply(z,1, euc.dist)
   k  <- z/d
   k[is.na(k)] <- 0  #comment, paper sign, if function
@@ -62,6 +49,7 @@ covMSS <- function(z) {
 # covariance matrix based on first step of BACON #Juist variables, beter schrijven s.5
 covBACON <- function(z) {
   #Based on the norm 
+  euc.dist<- function(x1) sqrt(sum((x1) ^ 2)) #euclidean distance function 
   dist <- apply(z, 1, euc.dist)
   zz <- cbind(z,dist)
   zz <- zz[order(dist),]
@@ -247,31 +235,6 @@ covDetMCD <- function(x, alpha) {
   return(results)
 }
 
-#this function uses the output of covDetMCD to construct a plot of the data and confidence ellipses
-plot_ellipses <- function(data,mcd_obj) {
-  require(car)
-  require(ggplot2)
-  ellipse_mcd_raw <- data.frame(ellipse(center=mcd_obj$raw.center,
-                                        shape = mcd_obj$raw.cov,
-                                        radius=sqrt(qchisq(0.975, df = p)),
-                                        segments=100,
-                                        draw=FALSE))
-  
-  ellipse_mcd <- data.frame(ellipse(center=mcd_obj$center,
-                                    shape = mcd_obj$cov,
-                                    radius=sqrt(qchisq(0.975, df = p)),
-                                    segments=100,
-                                    draw=FALSE))
-  
-  colnames(ellipse_mcd_raw) <- colnames(ellipse_mcd) <- colnames(data)
-  
-  ggplot(data, aes(Age, MarketValue)) +
-    geom_point() +
-    geom_polygon(color="red", fill="red", alpha=0.3, data=ellipse_mcd_raw) +
-    geom_polygon(color="yellow", fill="yellow", alpha=0.3, data=ellipse_mcd)
-}  
-plot_ellipses(as.data.frame(log(Eredivisie28)), covDetMCD(as.data.frame(log(Eredivisie28)),alpha=0.75))
-
 ## Function for regression based on the deterministic MCD
 
 # Input:
@@ -299,23 +262,33 @@ lmDetMCD <- function(x, y, alpha) {
   a <- C[1] - crossprod(C[-1], b)
   coefficients <- c(a,b)
   
-  fitted.values <- rep(a,nrow(x))+as.matrix(x)%*%b 
+  fitted.values <- rep(a,nrow(as.matrix(x)))+as.matrix(x)%*%b 
   residuals <- y-fitted.values
   results <- list("coefficients"=coefficients, "fitted.values"=fitted.values, "residuals"=residuals, "MCD"=MCD)
   return(results)
 }
 
-#plot regression lines based on different estimators
-data <- as.data.frame(log(Eredivisie28))
-plugin <- lmDetMCD(data[,1],data[,2],alpha=0.75)
-lts <- ltsReg(data[,2]~data[,1])
-ols <- lm(data[,2]~data[,1])
-predicted_data_plugin_E <- data.frame(Age=data[,1],pred_MV = plugin$fitted.values)
-predicted_data_lts_E <- data.frame(Age=data[,1],pred_MV=lts$fitted.values)
-predicted_data_ols_E <- data.frame(Age=data[,1],pred_MV = ols$fitted.values)
-ggplot(data, aes(x=Age, y=MarketValue)) +
-  geom_point() +
-  geom_line(color='red',data = predicted_data_plugin_E,aes(x=Age,y=pred_MV)) +
-  geom_line(color='green',data = predicted_data_ols_E,aes(x=Age,y=pred_MV)) +
-  geom_line(color='blue',data = predicted_data_lts_E,aes(x=Age,y=pred_MV))
-
+#this function uses the output of covDetMCD to construct a plot of the data and confidence ellipses
+# plot_ellipses <- function(data,mcd_obj) {
+#   require(car)
+#   require(ggplot2)
+#   ellipse_mcd_raw <- data.frame(ellipse(center=mcd_obj$raw.center,
+#                                         shape = mcd_obj$raw.cov,
+#                                         radius=sqrt(qchisq(0.975, df = p)),
+#                                         segments=100,
+#                                         draw=FALSE))
+#   
+#   ellipse_mcd <- data.frame(ellipse(center=mcd_obj$center,
+#                                     shape = mcd_obj$cov,
+#                                     radius=sqrt(qchisq(0.975, df = p)),
+#                                     segments=100,
+#                                     draw=FALSE))
+#   
+#   colnames(ellipse_mcd_raw) <- colnames(ellipse_mcd) <- colnames(data)
+#   
+#   ggplot(data, aes(Age, MarketValue)) +
+#     geom_point() +
+#     geom_polygon(color="red", fill="red", alpha=0.3, data=ellipse_mcd_raw) +
+#     geom_polygon(color="yellow", fill="yellow", alpha=0.3, data=ellipse_mcd)
+# }  
+# plot_ellipses(as.data.frame(log(Eredivisie28)), covDetMCD(as.data.frame(log(Eredivisie28)),alpha=0.75))

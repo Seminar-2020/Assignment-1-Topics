@@ -1,3 +1,8 @@
+# --------------------------------------------------------------------
+# Author:
+# Group 14: Tasia Bueno de Mesquita (424406), Rosa ten Kate (413775), Frederique Ram (431623), Tiemen de Jong (430839)
+# --------------------------------------------------------------------
+
 library(mvtnorm)
 # calculate the Root Mean Squared (Prediction) Error
 RMSE <- function (true, estimated) {
